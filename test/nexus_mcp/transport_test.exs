@@ -33,7 +33,7 @@ defmodule NexusMCP.TransportTest do
         "method" => "initialize",
         "id" => 1,
         "params" => %{
-          "protocolVersion" => "2025-03-26",
+          "protocolVersion" => "2025-06-18",
           "clientInfo" => %{"name" => "test", "version" => "1.0"},
           "capabilities" => %{}
         }
@@ -53,7 +53,7 @@ defmodule NexusMCP.TransportTest do
       {session_id, body} = initialize()
 
       assert session_id != nil
-      assert body["result"]["protocolVersion"] == "2025-03-26"
+      assert body["result"]["protocolVersion"] == "2025-06-18"
       assert body["result"]["serverInfo"]["name"] == "test-server"
     end
   end
@@ -190,7 +190,7 @@ defmodule NexusMCP.TransportTest do
   end
 
   describe "GET (SSE)" do
-    test "returns 406 without accept header" do
+    test "returns 405 without accept header" do
       {session_id, _} = initialize()
 
       conn =
@@ -198,7 +198,7 @@ defmodule NexusMCP.TransportTest do
         |> put_req_header("mcp-session-id", session_id)
         |> Transport.call(@opts)
 
-      assert conn.status == 406
+      assert conn.status == 405
     end
 
     test "returns 400 without session id" do
@@ -231,6 +231,67 @@ defmodule NexusMCP.TransportTest do
     end
   end
 
+  describe "origin validation" do
+    @origin_opts Transport.init(
+                   server: NexusMCP.TestServer,
+                   allowed_origins: ["https://example.com"]
+                 )
+
+    @init_body Jason.encode!(%{
+                 "jsonrpc" => "2.0",
+                 "method" => "initialize",
+                 "id" => 1,
+                 "params" => %{
+                   "protocolVersion" => "2025-06-18",
+                   "clientInfo" => %{"name" => "test", "version" => "1.0"},
+                   "capabilities" => %{}
+                 }
+               })
+
+    test "allows requests with no Origin header" do
+      conn =
+        conn(:post, "/", @init_body)
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("accept", "application/json")
+        |> Transport.call(@origin_opts)
+
+      assert conn.status == 200
+    end
+
+    test "allows requests with matching Origin header" do
+      conn =
+        conn(:post, "/", @init_body)
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("accept", "application/json")
+        |> put_req_header("origin", "https://example.com")
+        |> Transport.call(@origin_opts)
+
+      assert conn.status == 200
+    end
+
+    test "rejects requests with non-matching Origin header" do
+      conn =
+        conn(:post, "/", @init_body)
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("accept", "application/json")
+        |> put_req_header("origin", "https://evil.com")
+        |> Transport.call(@origin_opts)
+
+      assert conn.status == 403
+    end
+
+    test "skips origin check when allowed_origins is nil" do
+      conn =
+        conn(:post, "/", @init_body)
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("accept", "application/json")
+        |> put_req_header("origin", "https://anything.com")
+        |> Transport.call(@opts)
+
+      assert conn.status == 200
+    end
+  end
+
   describe "session expiry returns 404 (Anubis bug #1)" do
     test "request to timed-out session returns 404" do
       # Initialize with a short-timeout server
@@ -245,7 +306,7 @@ defmodule NexusMCP.TransportTest do
             "method" => "initialize",
             "id" => 1,
             "params" => %{
-              "protocolVersion" => "2025-03-26",
+              "protocolVersion" => "2025-06-18",
               "clientInfo" => %{"name" => "test", "version" => "1.0"},
               "capabilities" => %{}
             }
@@ -361,7 +422,7 @@ defmodule NexusMCP.TransportTest do
             "method" => "initialize",
             "id" => 1,
             "params" => %{
-              "protocolVersion" => "2025-03-26",
+              "protocolVersion" => "2025-06-18",
               "clientInfo" => %{"name" => "test", "version" => "1.0"},
               "capabilities" => %{}
             }
@@ -428,7 +489,7 @@ defmodule NexusMCP.TransportTest do
             "method" => "initialize",
             "id" => 1,
             "params" => %{
-              "protocolVersion" => "2025-03-26",
+              "protocolVersion" => "2025-06-18",
               "clientInfo" => %{"name" => "test", "version" => "1.0"},
               "capabilities" => %{}
             }

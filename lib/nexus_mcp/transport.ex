@@ -14,6 +14,7 @@ defmodule NexusMCP.Transport do
   ## Options
 
   - `:server` — The module implementing `NexusMCP.Server` (required)
+  - `:allowed_origins` — List of allowed Origin header values (optional, defaults to all)
   """
 
   @behaviour Plug
@@ -26,16 +27,33 @@ defmodule NexusMCP.Transport do
   @impl true
   def init(opts) do
     server = Keyword.fetch!(opts, :server)
-    %{server: server}
+    allowed_origins = Keyword.get(opts, :allowed_origins, nil)
+    %{server: server, allowed_origins: allowed_origins}
   end
 
   @impl true
-  def call(conn, %{server: server}) do
-    case conn.method do
-      "POST" -> handle_post(conn, server)
-      "GET" -> handle_get(conn)
-      "DELETE" -> handle_delete(conn)
-      _ -> send_resp(conn, 405, "Method Not Allowed")
+  def call(conn, %{server: server} = opts) do
+    case validate_origin(conn, opts[:allowed_origins]) do
+      :ok ->
+        case conn.method do
+          "POST" -> handle_post(conn, server)
+          "GET" -> handle_get(conn)
+          "DELETE" -> handle_delete(conn)
+          _ -> send_resp(conn, 405, "Method Not Allowed")
+        end
+
+      :error ->
+        send_resp(conn, 403, "Forbidden: invalid origin")
+    end
+  end
+
+  defp validate_origin(_conn, nil), do: :ok
+
+  defp validate_origin(conn, allowed_origins) do
+    case get_req_header(conn, "origin") do
+      [] -> :ok
+      [origin] -> if origin in allowed_origins, do: :ok, else: :error
+      _ -> :error
     end
   end
 
@@ -153,7 +171,7 @@ defmodule NexusMCP.Transport do
           send_resp(conn, 404, "Session not found")
       end
     else
-      send_resp(conn, 406, "Not Acceptable: must accept text/event-stream")
+      send_resp(conn, 405, "Method Not Allowed")
     end
   end
 

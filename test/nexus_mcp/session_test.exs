@@ -16,7 +16,7 @@ defmodule NexusMCP.SessionTest do
       result = initialize(pid)
 
       assert %{"jsonrpc" => "2.0", "id" => 1, "result" => result_body} = result
-      assert result_body["protocolVersion"] == "2025-03-26"
+      assert result_body["protocolVersion"] == "2025-06-18"
       assert result_body["serverInfo"]["name"] == "test-server"
       assert result_body["capabilities"]["tools"]
     end

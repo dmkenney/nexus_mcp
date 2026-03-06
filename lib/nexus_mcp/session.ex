@@ -11,7 +11,7 @@ defmodule NexusMCP.Session do
 
   alias NexusMCP.JsonRpc
 
-  @protocol_version "2025-03-26"
+  @protocol_version "2025-06-18"
 
   defstruct [
     :session_id,
