@@ -4,13 +4,15 @@ defmodule NexusMCP.Server.ToolTest do
   describe "deftool generates correct tools/0" do
     test "returns all defined tools" do
       tools = NexusMCP.TestServerDeftool.tools()
-      assert length(tools) == 4
+      assert length(tools) == 6
 
       names = Enum.map(tools, & &1.name)
       assert "greet" in names
       assert "get_status" in names
       assert "add" in names
       assert "fail_tool" in names
+      assert "list_items" in names
+      assert "delete_item" in names
     end
 
     test "tools have correct schemas" do
@@ -41,6 +43,31 @@ defmodule NexusMCP.Server.ToolTest do
       status = Enum.find(tools, &(&1.name == "get_status"))
 
       assert status.inputSchema == %{type: "object", properties: %{}}
+    end
+
+    test "tools with annotations include annotations map" do
+      tools = NexusMCP.TestServerDeftool.tools()
+      list_items = Enum.find(tools, &(&1.name == "list_items"))
+
+      assert list_items.annotations == %{readOnlyHint: true, destructiveHint: false}
+    end
+
+    test "tools with destructive annotations" do
+      tools = NexusMCP.TestServerDeftool.tools()
+      delete_item = Enum.find(tools, &(&1.name == "delete_item"))
+
+      assert delete_item.annotations == %{
+               readOnlyHint: false,
+               destructiveHint: true,
+               idempotentHint: true
+             }
+    end
+
+    test "tools without annotations have no annotations key" do
+      tools = NexusMCP.TestServerDeftool.tools()
+      greet = Enum.find(tools, &(&1.name == "greet"))
+
+      refute Map.has_key?(greet, :annotations)
     end
   end
 

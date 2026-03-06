@@ -19,4 +19,16 @@ defmodule NexusMCP.TestServerDeftool do
   deftool "fail_tool", "A tool that fails", params: [] do
     {:error, "intentional failure"}
   end
+
+  deftool "list_items", "List all items",
+    params: [],
+    annotations: %{readOnlyHint: true, destructiveHint: false} do
+    {:ok, []}
+  end
+
+  deftool "delete_item", "Delete an item",
+    params: [id: {:string!, "Item ID"}],
+    annotations: %{readOnlyHint: false, destructiveHint: true, idempotentHint: true} do
+    {:ok, %{deleted: true, id: params["id"]}}
+  end
 end

@@ -25,6 +25,7 @@ defmodule NexusMCP.Server.Tool do
     opts = Keyword.merge(opts_or_params, do_block)
     {block, opts} = Keyword.pop!(opts, :do)
     params_def = Keyword.get(opts, :params, [])
+    annotations_def = Keyword.get(opts, :annotations, nil)
 
     schema = Schema.params_to_schema(params_def)
 
@@ -36,6 +37,10 @@ defmodule NexusMCP.Server.Tool do
 
     quote do
       @__nexus_tools__ unquote(Macro.escape(tool_def))
+                       |> then(fn td ->
+                         annotations = unquote(annotations_def)
+                         if annotations, do: Map.put(td, :annotations, annotations), else: td
+                       end)
 
       def __nexus_handle_tool_call__(unquote(name), var!(params), var!(session)) do
         _ = var!(params)
