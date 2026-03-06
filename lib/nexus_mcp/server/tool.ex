@@ -18,6 +18,19 @@ defmodule NexusMCP.Server.Tool do
       end
 
   Inside the `do` block, `params` and `session` are bound.
+
+  ## Annotations
+
+  Pass `annotations` to provide hints about the tool's behavior to MCP clients:
+
+      deftool "delete_item", "Delete an item",
+        params: [id: {:string!, "Item ID"}],
+        annotations: %{readOnlyHint: false, destructiveHint: true, idempotentHint: true} do
+        Items.delete!(params["id"])
+        {:ok, %{deleted: true}}
+      end
+
+  Supported keys: `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`, `title`.
   """
   defmacro deftool(name, description, opts_or_params \\ [], do_block \\ []) do
     # Handle both `deftool "x", "y", params: [...] do ... end` (arity 4)

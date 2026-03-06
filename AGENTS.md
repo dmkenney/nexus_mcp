@@ -40,6 +40,13 @@ Elixir library implementing the MCP (Model Context Protocol) Streamable HTTP tra
 - Tests that need the supervision tree should `start_supervised!({NexusMCP.Supervisor, []})` in setup
 - The `deftool` macro parses `opts, do: block` and `opts do block end` differently — import both arity 3 and 4
 
+## Documentation
+
+- After adding or updating features, check that `README.md` and moduledocs (`@moduledoc`/`@doc`) reflect the changes
+- README.md is the landing page on hex.pm; moduledocs generate the API reference
+- Keep version references in README.md (e.g. `{:nexus_mcp, "~> 0.2.0"}`) in sync with `@version` in `mix.exs`
+- Key moduledocs to keep current: `NexusMCP`, `NexusMCP.Server`, `NexusMCP.Server.Tool`, `NexusMCP.Transport`
+
 ## Git
 
 - Do not include AI attribution (e.g. `Co-Authored-By`) in commit messages
