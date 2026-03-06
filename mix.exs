@@ -1,7 +1,7 @@
 defmodule NexusMCP.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.2.0"
 
   def project do
     [
@@ -16,7 +16,7 @@ defmodule NexusMCP.MixProject do
       description:
         "MCP (Model Context Protocol) server library for Elixir with per-session GenServer architecture",
       package: package(),
-      source_url: "https://github.com/brightsite/nexus_mcp"
+      source_url: "https://github.com/dmkenney/nexus_mcp"
     ]
   end
 
@@ -67,7 +67,7 @@ defmodule NexusMCP.MixProject do
     [
       licenses: ["MIT"],
       files: ~w(lib .formatter.exs mix.exs README* LICENSE*),
-      links: %{"GitHub" => "https://github.com/brightsite/nexus_mcp"}
+      links: %{"GitHub" => "https://github.com/dmkenney/nexus_mcp"}
     ]
   end
 end
