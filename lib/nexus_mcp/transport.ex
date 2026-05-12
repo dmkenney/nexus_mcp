@@ -1,9 +1,9 @@
 defmodule NexusMCP.Transport do
   @moduledoc """
-  Plug-based HTTP transport for MCP Streamable HTTP spec.
+  Plug-based HTTP transport for the MCP Streamable HTTP spec (2025-11-25).
 
   Routes HTTP methods:
-  - **POST** — JSON-RPC requests/notifications
+  - **POST** — JSON-RPC requests/notifications (tools, prompts, resources)
   - **GET** — SSE stream for server-to-client push
   - **DELETE** — Session termination
 

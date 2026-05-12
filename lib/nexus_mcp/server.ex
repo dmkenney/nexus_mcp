@@ -2,52 +2,52 @@ defmodule NexusMCP.Server do
   @moduledoc """
   Behaviour for defining an MCP server.
 
+  Supports the three MCP server primitives:
+
+  - **Tools** — model-controlled functions (`deftool`)
+  - **Prompts** — user-controlled message templates (`defprompt`)
+  - **Resources** — application-controlled context (`defresource`, `defresource_template`)
+
   ## Usage
 
-  ### Manual style (tools/0 + handle_tool_call/3)
+  ### Tools (DSL style)
 
       defmodule MyApp.MCP do
         use NexusMCP.Server,
           name: "my-app",
           version: "1.0.0"
-
-        @impl true
-        def tools do
-          [
-            %{name: "hello", description: "Say hello", inputSchema: %{type: "object", properties: %{}}}
-          ]
-        end
-
-        @impl true
-        def handle_tool_call("hello", _params, _session) do
-          {:ok, "Hello, world!"}
-        end
-      end
-
-  ### DSL style (deftool + wrap_tool_call)
-
-      defmodule MyApp.MCP do
-        use NexusMCP.Server,
-          name: "my-app",
-          version: "1.0.0"
-
-        @impl true
-        def wrap_tool_call(session, fun) do
-          MyApp.Context.put_user_id(session.assigns[:user_id])
-          fun.()
-        rescue
-          Ecto.NoResultsError -> {:error, "Not found"}
-        end
-
-        deftool "list_pages", "List all pages", params: [] do
-          {:ok, Enum.map(CMS.list_pages(), &Map.take(&1, [:id, :title, :slug]))}
-        end
 
         deftool "get_page", "Get a page by ID",
           params: [id: {:string!, "Page ID"}] do
           page = CMS.get_page!(params["id"])
-          {:ok, Map.take(page, [:id, :title, :slug, :body, :updated_at])}
+          {:ok, Map.take(page, [:id, :title, :slug, :body])}
         end
+      end
+
+  ### Prompts
+
+      defprompt "code_review", "Ask the model to review code",
+        arguments: [code: {:string!, "The code to review"}] do
+        {:ok, [
+          %{role: "user", content: %{type: "text",
+            text: "Please review this code:\\n" <> params["code"]}}
+        ]}
+      end
+
+  ### Resources
+
+      defresource "config://app",
+        name: "app_config",
+        description: "Application configuration",
+        mime_type: "application/json" do
+        {:ok, Jason.encode!(MyApp.config())}
+      end
+
+      defresource_template "file:///{path}",
+        name: "project_files",
+        description: "Files in the project directory",
+        mime_type: "text/plain" do
+        {:ok, File.read!(params["path"])}
       end
 
   ## Options
@@ -72,6 +72,45 @@ defmodule NexusMCP.Server do
   """
   @callback handle_tool_call(name :: String.t(), params :: map(), session :: session()) ::
               {:ok, term()} | {:error, String.t()}
+
+  @doc """
+  Returns the list of prompt definitions.
+  """
+  @callback prompts() :: [map()]
+
+  @doc """
+  Handle a `prompts/get` call. Receives the prompt name, arguments, and session.
+
+  Should return `{:ok, messages}` where `messages` is a list of
+  `%{role: "user" | "assistant", content: %{...}}` maps.
+  """
+  @callback handle_prompt_get(name :: String.t(), arguments :: map(), session :: session()) ::
+              {:ok, [map()]} | {:error, String.t() | :not_found}
+
+  @doc """
+  Returns the list of static resource definitions.
+  """
+  @callback resources() :: [map()]
+
+  @doc """
+  Returns the list of resource template definitions.
+  """
+  @callback resource_templates() :: [map()]
+
+  @doc """
+  Handle a `resources/read` call. Receives the URI, the params captured from the
+  URI template (empty map for static resources), and the session.
+
+  Should return `{:ok, content}` where `content` is one of:
+
+  - A string — wrapped as `text` if the resource's `mimeType` is textual,
+    otherwise base64-encoded as `blob`
+  - `%{text: string}` or `%{blob: base64}` — passed through
+
+  Return `{:error, :not_found}` for unknown URIs.
+  """
+  @callback handle_resource_read(uri :: String.t(), params :: map(), session :: session()) ::
+              {:ok, String.t() | map()} | {:error, String.t() | :not_found}
 
   @doc """
   Per-session initialization. Called when a new session is created.
@@ -107,9 +146,16 @@ defmodule NexusMCP.Server do
       @behaviour NexusMCP.Server
 
       Module.register_attribute(__MODULE__, :__nexus_tools__, accumulate: true)
-      @before_compile NexusMCP.Server.Tool
+      Module.register_attribute(__MODULE__, :__nexus_prompts__, accumulate: true)
+      Module.register_attribute(__MODULE__, :__nexus_resources__, accumulate: true)
+      Module.register_attribute(__MODULE__, :__nexus_resource_templates__, accumulate: true)
+      @before_compile NexusMCP.Server.Compile
 
       import NexusMCP.Server.Tool, only: [deftool: 3, deftool: 4, format_changeset_errors: 1]
+      import NexusMCP.Server.Prompt, only: [defprompt: 3, defprompt: 4]
+
+      import NexusMCP.Server.Resource,
+        only: [defresource: 2, defresource: 3, defresource_template: 2, defresource_template: 3]
 
       @doc false
       @impl NexusMCP.Server
@@ -130,6 +176,11 @@ defmodule NexusMCP.Server do
       def wrap_tool_call(_session, fun), do: fun.()
 
       defoverridable init: 1, wrap_tool_call: 2
+
+      # Defaults for tools/prompts/resources callbacks are injected by
+      # `NexusMCP.Server.Compile.__before_compile__/1` so the DSL-generated
+      # functions can override them. Putting them in this macro would shadow
+      # the DSL output (defoverridable doesn't see `@before_compile` injections).
     end
   end
 end

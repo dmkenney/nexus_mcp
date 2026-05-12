@@ -11,7 +11,8 @@ defmodule NexusMCP.Session do
 
   alias NexusMCP.JsonRpc
 
-  @protocol_version "2025-06-18"
+  @protocol_version "2025-11-25"
+  @resource_not_found -32_002
 
   defstruct [
     :session_id,
@@ -153,9 +154,7 @@ defmodule NexusMCP.Session do
 
           result = %{
             "protocolVersion" => @protocol_version,
-            "capabilities" => %{
-              "tools" => %{"listChanged" => false}
-            },
+            "capabilities" => build_capabilities(state.server_module),
             "serverInfo" => %{
               "name" => info.name,
               "version" => info.version
@@ -218,6 +217,86 @@ defmodule NexusMCP.Session do
 
       pending = Map.put(state.pending_tasks, task.ref, {from, id})
       {:noreply, %{state | pending_tasks: pending}, state.idle_timeout}
+    else
+      response = JsonRpc.error(id, JsonRpc.invalid_request_code(), "Not initialized")
+      {:reply, response, state, state.idle_timeout}
+    end
+  end
+
+  defp dispatch(%{method: "prompts/list", id: id}, _from, state) do
+    if state.initialized do
+      prompts = state.server_module.prompts()
+      {:reply, JsonRpc.result(id, %{"prompts" => prompts}), state, state.idle_timeout}
+    else
+      response = JsonRpc.error(id, JsonRpc.invalid_request_code(), "Not initialized")
+      {:reply, response, state, state.idle_timeout}
+    end
+  end
+
+  defp dispatch(%{method: "prompts/get", id: id, params: params}, _from, state) do
+    if state.initialized do
+      name = Map.get(params, "name")
+      args = Map.get(params, "arguments", %{})
+
+      case find_prompt(state.server_module, name) do
+        nil ->
+          response =
+            JsonRpc.error(id, JsonRpc.invalid_params_code(), "Unknown prompt: #{inspect(name)}")
+
+          {:reply, response, state, state.idle_timeout}
+
+        prompt ->
+          case validate_prompt_args(prompt, args) do
+            :ok ->
+              session_map = %{session_id: state.session_id, assigns: state.assigns}
+              response = call_prompt_get(state.server_module, name, args, session_map, prompt, id)
+              {:reply, response, state, state.idle_timeout}
+
+            {:error, missing} ->
+              response =
+                JsonRpc.error(
+                  id,
+                  JsonRpc.invalid_params_code(),
+                  "Missing required argument: #{missing}"
+                )
+
+              {:reply, response, state, state.idle_timeout}
+          end
+      end
+    else
+      response = JsonRpc.error(id, JsonRpc.invalid_request_code(), "Not initialized")
+      {:reply, response, state, state.idle_timeout}
+    end
+  end
+
+  defp dispatch(%{method: "resources/list", id: id}, _from, state) do
+    if state.initialized do
+      resources = state.server_module.resources()
+      {:reply, JsonRpc.result(id, %{"resources" => resources}), state, state.idle_timeout}
+    else
+      response = JsonRpc.error(id, JsonRpc.invalid_request_code(), "Not initialized")
+      {:reply, response, state, state.idle_timeout}
+    end
+  end
+
+  defp dispatch(%{method: "resources/templates/list", id: id}, _from, state) do
+    if state.initialized do
+      templates = state.server_module.resource_templates()
+
+      {:reply, JsonRpc.result(id, %{"resourceTemplates" => templates}), state, state.idle_timeout}
+    else
+      response = JsonRpc.error(id, JsonRpc.invalid_request_code(), "Not initialized")
+      {:reply, response, state, state.idle_timeout}
+    end
+  end
+
+  defp dispatch(%{method: "resources/read", id: id, params: params}, _from, state) do
+    if state.initialized do
+      uri = Map.get(params, "uri")
+      session_map = %{session_id: state.session_id, assigns: state.assigns}
+
+      response = call_resource_read(state.server_module, uri, session_map, id)
+      {:reply, response, state, state.idle_timeout}
     else
       response = JsonRpc.error(id, JsonRpc.invalid_request_code(), "Not initialized")
       {:reply, response, state, state.idle_timeout}
@@ -299,4 +378,150 @@ defmodule NexusMCP.Session do
       _ -> false
     end)
   end
+
+  # --- Capability declaration ---
+
+  defp build_capabilities(server_module) do
+    base = %{"tools" => %{"listChanged" => false}}
+
+    base
+    |> maybe_put_capability("prompts", server_module.prompts() != [], %{"listChanged" => false})
+    |> maybe_put_capability(
+      "resources",
+      server_module.resources() != [] or server_module.resource_templates() != [],
+      %{"subscribe" => false, "listChanged" => false}
+    )
+  end
+
+  defp maybe_put_capability(caps, _key, false, _value), do: caps
+  defp maybe_put_capability(caps, key, true, value), do: Map.put(caps, key, value)
+
+  # --- Prompts helpers ---
+
+  defp find_prompt(server_module, name) when is_binary(name) do
+    Enum.find(server_module.prompts(), fn p -> p.name == name end)
+  end
+
+  defp find_prompt(_, _), do: nil
+
+  defp validate_prompt_args(%{arguments: arguments}, args) when is_list(arguments) do
+    missing =
+      arguments
+      |> Enum.filter(& &1.required)
+      |> Enum.map(& &1.name)
+      |> Enum.find(fn name -> not Map.has_key?(args, name) end)
+
+    case missing do
+      nil -> :ok
+      name -> {:error, name}
+    end
+  end
+
+  defp validate_prompt_args(_, _), do: :ok
+
+  defp call_prompt_get(server_module, name, args, session_map, prompt, id) do
+    case server_module.handle_prompt_get(name, args, session_map) do
+      {:ok, messages} when is_list(messages) ->
+        result =
+          %{"messages" => messages}
+          |> maybe_put_string("description", Map.get(prompt, :description))
+
+        JsonRpc.result(id, result)
+
+      {:error, :not_found} ->
+        JsonRpc.error(id, JsonRpc.invalid_params_code(), "Unknown prompt: #{inspect(name)}")
+
+      {:error, reason} ->
+        JsonRpc.error(id, JsonRpc.internal_error_code(), to_string(reason))
+
+      other ->
+        Logger.error("Unexpected prompts/get result: #{inspect(other)}")
+
+        JsonRpc.error(
+          id,
+          JsonRpc.internal_error_code(),
+          "Internal error: unexpected prompt result"
+        )
+    end
+  end
+
+  defp maybe_put_string(map, _key, nil), do: map
+  defp maybe_put_string(map, key, value), do: Map.put(map, key, value)
+
+  # --- Resources helpers ---
+
+  defp call_resource_read(_server_module, nil, _session_map, id) do
+    JsonRpc.error(id, JsonRpc.invalid_params_code(), "Missing required parameter: uri")
+  end
+
+  defp call_resource_read(server_module, uri, session_map, id) do
+    case server_module.handle_resource_read(uri, %{}, session_map) do
+      {:ok, content} ->
+        mime = resource_mime(server_module, uri)
+        contents = [shape_resource_content(uri, mime, content)]
+        JsonRpc.result(id, %{"contents" => contents})
+
+      {:error, :not_found} ->
+        JsonRpc.error(id, @resource_not_found, "Resource not found", %{"uri" => uri})
+
+      {:error, reason} ->
+        JsonRpc.error(id, JsonRpc.internal_error_code(), to_string(reason))
+
+      other ->
+        Logger.error("Unexpected resources/read result: #{inspect(other)}")
+
+        JsonRpc.error(
+          id,
+          JsonRpc.internal_error_code(),
+          "Internal error: unexpected resource result"
+        )
+    end
+  end
+
+  defp resource_mime(server_module, uri) do
+    static = Enum.find(server_module.resources(), fn r -> r.uri == uri end)
+
+    cond do
+      static && Map.get(static, :mimeType) ->
+        static.mimeType
+
+      true ->
+        Enum.find_value(server_module.resource_templates(), fn t ->
+          Map.get(t, :mimeType)
+        end)
+    end
+  end
+
+  defp shape_resource_content(uri, mime, %{text: text} = m) do
+    base_resource_map(uri, m[:mimeType] || m["mimeType"] || mime) |> Map.put("text", text)
+  end
+
+  defp shape_resource_content(uri, mime, %{"text" => text} = m) do
+    base_resource_map(uri, m[:mimeType] || m["mimeType"] || mime) |> Map.put("text", text)
+  end
+
+  defp shape_resource_content(uri, mime, %{blob: blob} = m) do
+    base_resource_map(uri, m[:mimeType] || m["mimeType"] || mime) |> Map.put("blob", blob)
+  end
+
+  defp shape_resource_content(uri, mime, %{"blob" => blob} = m) do
+    base_resource_map(uri, m[:mimeType] || m["mimeType"] || mime) |> Map.put("blob", blob)
+  end
+
+  defp shape_resource_content(uri, mime, binary) when is_binary(binary) do
+    if textual_mime?(mime) do
+      base_resource_map(uri, mime) |> Map.put("text", binary)
+    else
+      base_resource_map(uri, mime) |> Map.put("blob", Base.encode64(binary))
+    end
+  end
+
+  defp base_resource_map(uri, nil), do: %{"uri" => uri}
+  defp base_resource_map(uri, mime), do: %{"uri" => uri, "mimeType" => mime}
+
+  defp textual_mime?(nil), do: true
+  defp textual_mime?("text/" <> _), do: true
+  defp textual_mime?("application/json"), do: true
+  defp textual_mime?("application/json" <> _), do: true
+  defp textual_mime?(_), do: false
 end

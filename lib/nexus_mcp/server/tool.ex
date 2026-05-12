@@ -1,7 +1,6 @@
 defmodule NexusMCP.Server.Tool do
   @moduledoc """
-  Provides the `deftool` macro and `@before_compile` hook for accumulating
-  tool definitions alongside their handlers.
+  Provides the `deftool` macro for declaring MCP tools alongside their handlers.
   """
 
   alias NexusMCP.Server.Schema
@@ -78,42 +77,5 @@ defmodule NexusMCP.Server.Tool do
       end)
 
     {:error, Enum.join(messages, ", ")}
-  end
-
-  @doc false
-  defmacro __before_compile__(env) do
-    tools = Module.get_attribute(env.module, :__nexus_tools__) || []
-    has_manual_tools = Module.defines?(env.module, {:tools, 0})
-    has_manual_handle = Module.defines?(env.module, {:handle_tool_call, 3})
-
-    cond do
-      tools != [] and has_manual_tools ->
-        raise CompileError,
-          file: env.file,
-          line: 0,
-          description:
-            "#{inspect(env.module)} defines both deftool and a manual tools/0. " <>
-              "Use one or the other."
-
-      tools != [] ->
-        # Reverse because @accumulate prepends
-        tools = Enum.reverse(tools)
-
-        quote do
-          @impl NexusMCP.Server
-          def tools, do: unquote(Macro.escape(tools))
-
-          unless unquote(has_manual_handle) do
-            @impl NexusMCP.Server
-            def handle_tool_call(name, params, session) do
-              __nexus_handle_tool_call__(name, params, session)
-            end
-          end
-        end
-
-      true ->
-        # No deftool macros used — don't generate anything
-        nil
-    end
   end
 end

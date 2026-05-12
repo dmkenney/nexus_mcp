@@ -1,7 +1,7 @@
 defmodule NexusMCP.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.3.0"
 
   def project do
     [
@@ -46,6 +46,8 @@ defmodule NexusMCP.MixProject do
         "Server DSL": [
           NexusMCP.Server,
           NexusMCP.Server.Tool,
+          NexusMCP.Server.Prompt,
+          NexusMCP.Server.Resource,
           NexusMCP.Server.Schema
         ],
         Infrastructure: [

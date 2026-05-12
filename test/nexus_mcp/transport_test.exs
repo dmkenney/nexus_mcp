@@ -53,7 +53,7 @@ defmodule NexusMCP.TransportTest do
       {session_id, body} = initialize()
 
       assert session_id != nil
-      assert body["result"]["protocolVersion"] == "2025-06-18"
+      assert body["result"]["protocolVersion"] == "2025-11-25"
       assert body["result"]["serverInfo"]["name"] == "test-server"
     end
   end

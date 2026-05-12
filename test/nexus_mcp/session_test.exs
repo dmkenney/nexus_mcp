@@ -10,13 +10,31 @@ defmodule NexusMCP.SessionTest do
     :ok
   end
 
+  defp eventually(fun, deadline_ms \\ 200) do
+    deadline = System.monotonic_time(:millisecond) + deadline_ms
+
+    Stream.repeatedly(fun)
+    |> Enum.reduce_while(false, fn
+      true, _ ->
+        {:halt, true}
+
+      false, _ ->
+        if System.monotonic_time(:millisecond) > deadline do
+          {:halt, false}
+        else
+          Process.sleep(5)
+          {:cont, false}
+        end
+    end)
+  end
+
   describe "initialize" do
     test "returns server capabilities" do
       {_id, pid} = start_session()
       result = initialize(pid)
 
       assert %{"jsonrpc" => "2.0", "id" => 1, "result" => result_body} = result
-      assert result_body["protocolVersion"] == "2025-06-18"
+      assert result_body["protocolVersion"] == "2025-11-25"
       assert result_body["serverInfo"]["name"] == "test-server"
       assert result_body["capabilities"]["tools"]
     end
@@ -326,7 +344,11 @@ defmodule NexusMCP.SessionTest do
       ref = Process.monitor(pid)
 
       assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 500
-      assert :error = registry.lookup(session_id)
+
+      # Registry cleanup runs in the Registry's own monitor process, which
+      # receives :DOWN independently — poll briefly so the test isn't racy
+      # under load.
+      assert eventually(fn -> registry.lookup(session_id) == :error end)
     end
 
     test "RPC to dead session exits with noproc" do
