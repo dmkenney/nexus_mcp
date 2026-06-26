@@ -409,6 +409,40 @@ defmodule NexusMCP.TransportTest do
     end
   end
 
+  describe "session rpc exits with unexpected reason (nodedown / distributed disconnect)" do
+    test "returns 404 instead of crashing" do
+      session_id = "crashy-#{System.unique_integer()}"
+      registry = NexusMCP.SessionRegistry.impl()
+
+      # Spawn a process that handles GenServer.call messages but exits with
+      # an unexpected reason. This simulates what happens when a distributed
+      # Erlang node disconnects mid-RPC (the GenServer.call propagates an exit
+      # reason like "no connection to node@host").
+      #
+      # This bug occurred when, mid deployment, the MCP session was connected to a node
+      # that was replaced.  When using a distributed registry across multiple nodes, the
+      # session could have been stored on a node that is no longer active.
+      pid =
+        spawn(fn ->
+          receive do
+            {:"$gen_call", {_caller, _ref}, {:rpc, _request}} ->
+              Process.exit(self(), "unexpected_exit_reason")
+          end
+        end)
+
+      :ok = registry.register(session_id, pid)
+
+      conn =
+        json_post(
+          "/",
+          %{"jsonrpc" => "2.0", "method" => "ping", "id" => 1, "params" => %{}},
+          [{"mcp-session-id", session_id}]
+        )
+
+      assert conn.status == 404
+    end
+  end
+
   describe "failed init cleans up session" do
     test "session is terminated after init callback failure" do
       opts = Transport.init(server: NexusMCP.TestServerFailInit)

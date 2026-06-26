@@ -240,9 +240,21 @@ defmodule NexusMCP.Transport do
   defp call_session(pid, request) do
     Session.rpc(pid, request)
   catch
-    :exit, {:noproc, _} -> :session_dead
-    :exit, {:normal, _} -> :session_dead
-    :exit, {:shutdown, _} -> :session_dead
+    :exit, {:noproc, _} ->
+      :session_dead
+
+    :exit, {:normal, _} ->
+      :session_dead
+
+    :exit, {:shutdown, _} ->
+      :session_dead
+
+    :exit, {:nodedown, _} ->
+      :session_dead
+
+    :exit, reason ->
+      Logger.warning("Session call failed with unexpected exit: #{inspect(reason)}")
+      :session_dead
   end
 
   defp json_response(conn, status, body) do
