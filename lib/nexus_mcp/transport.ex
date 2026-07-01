@@ -249,7 +249,8 @@ defmodule NexusMCP.Transport do
     :exit, {:shutdown, _} ->
       :session_dead
 
-    :exit, {:nodedown, _} ->
+    :exit, {{:nodedown, node}, _} ->
+      Logger.warning("Session call failed due to nodedown: #{inspect(node)}")
       :session_dead
 
     :exit, reason ->
