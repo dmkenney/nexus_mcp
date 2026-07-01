@@ -409,6 +409,83 @@ defmodule NexusMCP.TransportTest do
     end
   end
 
+  describe "session rpc exits with unexpected reason (nodedown / distributed disconnect)" do
+    test "returns 404 instead of crashing when the session exits with :nodedown" do
+      session_id = "crashy-#{System.unique_integer()}"
+      test_pid = self()
+
+      # Simulate a session living on a distributed node that has left the
+      # cluster: a GenServer.call to it exits with a {:nodedown, _} reason.
+      #
+      # The spawned process registers *itself* — the default `Registry`-backed
+      # `SessionRegistry.Local` always registers the calling process as the key
+      # owner and only stores the given pid as the value, so registration must
+      # happen from inside the process we want `lookup/1` to return. When the
+      # RPC arrives it exits with a nodedown-shaped reason, which is what
+      # GenServer.call propagates to the caller in the real bug.
+      _pid =
+        spawn(fn ->
+          registry = NexusMCP.SessionRegistry.impl()
+          :ok = registry.register(session_id, self())
+          send(test_pid, :registered)
+
+          receive do
+            {:"$gen_call", _from, {:rpc, _request}} ->
+              exit({:nodedown, :"session@departed-node"})
+          end
+        end)
+
+      # Make sure registration has happened before we issue the request,
+      # otherwise lookup races the spawned process.
+      assert_receive :registered
+
+      conn =
+        json_post(
+          "/",
+          %{"jsonrpc" => "2.0", "method" => "ping", "id" => 1, "params" => %{}},
+          [{"mcp-session-id", session_id}]
+        )
+
+      assert conn.status == 404
+
+      # Without the catch in call_session/2 the {:nodedown, _} exit would
+      # propagate here and crash the request process. Reaching this point proves
+      # we didn't crash.
+      assert Process.alive?(test_pid)
+    end
+
+    test "returns 404 instead of crashing when the session exits with an arbitrary reason" do
+      session_id = "crashy-#{System.unique_integer()}"
+      test_pid = self()
+
+      # Exercises the catch-all clause: any other unexpected exit reason should
+      # also degrade to a 404 rather than crashing the request process.
+      _pid =
+        spawn(fn ->
+          registry = NexusMCP.SessionRegistry.impl()
+          :ok = registry.register(session_id, self())
+          send(test_pid, :registered)
+
+          receive do
+            {:"$gen_call", _from, {:rpc, _request}} ->
+              exit(:unexpected_exit_reason)
+          end
+        end)
+
+      assert_receive :registered
+
+      conn =
+        json_post(
+          "/",
+          %{"jsonrpc" => "2.0", "method" => "ping", "id" => 1, "params" => %{}},
+          [{"mcp-session-id", session_id}]
+        )
+
+      assert conn.status == 404
+      assert Process.alive?(test_pid)
+    end
+  end
+
   describe "failed init cleans up session" do
     test "session is terminated after init callback failure" do
       opts = Transport.init(server: NexusMCP.TestServerFailInit)
