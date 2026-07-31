@@ -55,6 +55,22 @@ defmodule NexusMCP.Server do
   - `:name` - Server name (required)
   - `:version` - Server version (required)
   - `:idle_timeout` - Session idle timeout in ms (default: 7_200_000 / 2 hours)
+  - `:hibernate_after` - Hibernate a session once it has been quiet for this
+    many ms (default: 15_000). Set to `:infinity` to disable hibernation.
+
+  ## Session memory
+
+  A session process keeps the heap it grew while handling requests, and the
+  BEAM does not shrink it again on its own. A session that returned a few large
+  tool results therefore keeps holding that heap for as long as it lives, even
+  while completely idle - with many concurrent sessions that dominates memory
+  use.
+
+  Hibernating collapses the heap to a minimum and the process re-grows it on
+  the next message. Doing that after *every* call costs real time (roughly 2x
+  on a trivial call), so it is debounced: each request re-arms the timer, an
+  active session never hibernates, and only one that has gone quiet pays for
+  it. Set `hibernate_after: :infinity` to opt out.
   """
 
   @type session :: %{
@@ -129,6 +145,19 @@ defmodule NexusMCP.Server do
   @callback idle_timeout() :: non_neg_integer()
 
   @doc """
+  How long a session must be quiet before it hibernates, in milliseconds.
+
+  `:infinity` disables hibernation.
+
+  Optional. `use NexusMCP.Server` defines it from the `:hibernate_after`
+  option; a module implementing this behaviour by hand may leave it out, in
+  which case sessions fall back to the 15s default.
+  """
+  @callback hibernate_after() :: non_neg_integer() | :infinity
+
+  @optional_callbacks hibernate_after: 0
+
+  @doc """
   Wraps every tool call execution. Runs in the Task process before the handler.
   Override to set up process-local state (e.g. tenant context) or rescue errors.
 
@@ -141,6 +170,7 @@ defmodule NexusMCP.Server do
     name = Keyword.fetch!(opts, :name)
     version = Keyword.fetch!(opts, :version)
     idle_timeout = Keyword.get(opts, :idle_timeout, 7_200_000)
+    hibernate_after = Keyword.get(opts, :hibernate_after, 15_000)
 
     quote do
       @behaviour NexusMCP.Server
@@ -167,6 +197,12 @@ defmodule NexusMCP.Server do
       @impl NexusMCP.Server
       def idle_timeout do
         unquote(idle_timeout)
+      end
+
+      @doc false
+      @impl NexusMCP.Server
+      def hibernate_after do
+        unquote(hibernate_after)
       end
 
       @impl NexusMCP.Server

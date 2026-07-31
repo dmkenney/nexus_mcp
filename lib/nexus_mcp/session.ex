@@ -18,6 +18,11 @@ defmodule NexusMCP.Session do
     :session_id,
     :server_module,
     :idle_timeout,
+    :hibernate_after,
+    :hibernate_timer,
+    :idle_timer,
+    :idle_deadline,
+    timer_token: 0,
     initialized: false,
     protocol_version: nil,
     client_info: %{},
@@ -61,12 +66,15 @@ defmodule NexusMCP.Session do
       :ok ->
         idle_timeout = server_module.idle_timeout()
 
-        state = %__MODULE__{
-          session_id: session_id,
-          server_module: server_module,
-          idle_timeout: idle_timeout,
-          assigns: initial_assigns
-        }
+        state =
+          %__MODULE__{
+            session_id: session_id,
+            server_module: server_module,
+            idle_timeout: idle_timeout,
+            hibernate_after: hibernate_after(server_module),
+            assigns: initial_assigns
+          }
+          |> arm_hibernate()
 
         {:ok, state, idle_timeout}
 
@@ -77,20 +85,23 @@ defmodule NexusMCP.Session do
 
   @impl true
   def handle_call({:rpc, request}, from, state) do
-    dispatch(request, from, state)
+    dispatch(request, from, arm_hibernate(state))
   end
 
   def handle_call({:register_sse, sse_pid}, _from, state) do
     ref = Process.monitor(sse_pid)
 
     state = %{state | sse_connections: Map.put(state.sse_connections, ref, sse_pid)}
-    {:reply, :ok, state, state.idle_timeout}
+    {:reply, :ok, arm_hibernate(state), state.idle_timeout}
   end
 
   @impl true
   def handle_info({ref, result}, %{pending_tasks: pending} = state) when is_reference(ref) do
-    # Task completed
+    # Task completed - this wakes a hibernating session, so any deadline armed
+    # while it was parked has to be dropped before the GenServer timeout takes
+    # over again.
     Process.demonitor(ref, [:flush])
+    state = awake(state)
 
     case Map.pop(pending, ref) do
       {{from, request_id}, pending} ->
@@ -104,7 +115,10 @@ defmodule NexusMCP.Session do
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{pending_tasks: pending} = state) do
-    # Could be a task crash or an SSE connection drop
+    # Could be a task crash or an SSE connection drop - either way the session
+    # is awake again.
+    state = awake(state)
+
     case Map.pop(pending, ref) do
       {{from, request_id}, pending} ->
         # Task crashed
@@ -135,8 +149,108 @@ defmodule NexusMCP.Session do
     {:stop, :normal, state}
   end
 
-  def handle_info(_msg, state) do
+  # Idle deadline armed by hand while hibernating (see below). Only the token
+  # from the most recent arming counts - anything older raced with activity
+  # that has since re-armed the timers, and must be ignored.
+  def handle_info({:nexus_idle_expired, token}, %{timer_token: token} = state) do
+    Logger.info(
+      "Session #{state.session_id} timed out after #{state.idle_timeout}ms of inactivity"
+    )
+
+    {:stop, :normal, state}
+  end
+
+  def handle_info({:nexus_idle_expired, _stale}, state) do
     {:noreply, state, state.idle_timeout}
+  end
+
+  # The session has been quiet long enough to be worth shrinking. Hibernating
+  # collapses the heap this session grew while handling requests; it re-grows
+  # on the next message.
+  #
+  # `:hibernate` occupies the same tuple slot as the idle timeout, so returning
+  # it here would cancel the idle timeout and the session would never expire.
+  # Hand-roll the idle deadline as a token-tagged message instead, so that
+  # later activity can invalidate it.
+  def handle_info({:nexus_hibernate, token}, %{timer_token: token} = state) do
+    state = %{state | hibernate_timer: nil}
+    {:noreply, arm_idle_deadline(state), :hibernate}
+  end
+
+  def handle_info({:nexus_hibernate, _stale}, state) do
+    {:noreply, state, state.idle_timeout}
+  end
+
+  def handle_info(_msg, state) do
+    {:noreply, arm_hibernate(state), state.idle_timeout}
+  end
+
+  # --- Hibernation ---
+
+  # Restart the quiet-period countdown. Called on every bit of session
+  # activity, so a busy session keeps pushing the deadline out and never
+  # actually hibernates - only one that goes quiet pays the cost.
+  #
+  # Every arming bumps `timer_token`. Cancellation alone is not enough: a timer
+  # can already have fired and queued its message by the time we cancel it, so
+  # the handlers match on the current token and drop anything older.
+  # With hibernation off the session never parks, so it never arms an explicit
+  # deadline - the GenServer timeout alone governs expiry.
+  defp arm_hibernate(%__MODULE__{hibernate_after: :infinity} = state),
+    do: clear_idle_timer(state)
+
+  defp arm_hibernate(%__MODULE__{} = state) do
+    state = clear_idle_timer(state)
+    if state.hibernate_timer, do: Process.cancel_timer(state.hibernate_timer)
+
+    token = state.timer_token + 1
+    timer = Process.send_after(self(), {:nexus_hibernate, token}, state.hibernate_after)
+
+    %{
+      state
+      | hibernate_timer: timer,
+        timer_token: token,
+        idle_deadline: now_ms() + state.idle_timeout
+    }
+  end
+
+  # Hibernation clears the GenServer timeout, so the inactivity deadline has to
+  # be carried by an explicit message for as long as the session stays parked.
+  #
+  # Schedule the time *remaining* against the deadline recorded at the last
+  # activity, rather than a whole fresh idle_timeout - otherwise each
+  # hibernation would push expiry out by another hibernate_after.
+  defp arm_idle_deadline(%__MODULE__{} = state) do
+    state = clear_idle_timer(state)
+    remaining = max((state.idle_deadline || now_ms() + state.idle_timeout) - now_ms(), 0)
+    timer = Process.send_after(self(), {:nexus_idle_expired, state.timer_token}, remaining)
+    %{state | idle_timer: timer}
+  end
+
+  # Something woke the session (a task result, a monitor going down). Treat it
+  # as activity: drop the deadline armed while it was parked, and restart the
+  # quiet-period countdown.
+  defp awake(%__MODULE__{} = state), do: arm_hibernate(state)
+
+  # A deadline armed while hibernating is void as soon as the session is awake
+  # again - from that point the GenServer timeout governs expiry.
+  defp clear_idle_timer(%__MODULE__{idle_timer: nil} = state), do: state
+
+  defp clear_idle_timer(%__MODULE__{} = state) do
+    Process.cancel_timer(state.idle_timer)
+    %{state | idle_timer: nil}
+  end
+
+  defp now_ms, do: System.monotonic_time(:millisecond)
+
+  # Servers compiled against an older nexus_mcp will not export
+  # hibernate_after/0.
+  defp hibernate_after(server_module) do
+    if function_exported?(server_module, :hibernate_after, 0) do
+      server_module.hibernate_after()
+    else
+      15_000
+    end
   end
 
   # --- Method Dispatch ---
