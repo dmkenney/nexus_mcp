@@ -15,7 +15,7 @@ Supports the three MCP server primitives:
 ```elixir
 def deps do
   [
-    {:nexus_mcp, "~> 0.3.1"}
+    {:nexus_mcp, "~> 0.4.0"}
   ]
 end
 ```
@@ -184,6 +184,31 @@ forward "/mcp", NexusMCP.Transport,
 ```
 
 When `allowed_origins` is set, requests with an `Origin` header not in the list are rejected with `403`. Requests without an `Origin` header are allowed (e.g. server-to-server).
+
+## Session lifetime and memory
+
+```elixir
+defmodule MyApp.MCP do
+  use NexusMCP.Server,
+    name: "my-app",
+    version: "1.0.0",
+    hibernate_after: 60_000
+end
+```
+
+`idle_timeout` (default `7_200_000`, 2 hours) is how long a session may sit
+idle before it is terminated.
+
+`hibernate_after` (default `60_000`) is how long a session must be quiet before
+it hibernates. Hibernating collapses the heap the session grew while handling
+requests, which the BEAM does not otherwise give back — with many concurrent
+sessions holding large tool results, that heap dominates memory use.
+
+It is debounced rather than applied per call: every request re-arms the timer,
+so a session under steady traffic never hibernates and pays nothing, while one
+that goes quiet releases its heap and re-grows on the next message. Hibernating
+does not extend the inactivity deadline. Set `hibernate_after: :infinity` to
+disable it.
 
 ## Distributed deployments
 
