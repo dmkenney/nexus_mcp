@@ -131,7 +131,7 @@ defmodule NexusMCP.SessionHibernateTest do
       def wrap_tool_call(_session, fun), do: fun.()
       def handle_tool_call(_name, _args, _session), do: {:ok, "ok"}
       def handle_prompt_get(_name, _args, _session), do: {:error, "unsupported"}
-      def handle_resource_read(_uri, _session), do: {:error, "unsupported"}
+      def handle_resource_read(_uri, _params, _session), do: {:error, "unsupported"}
     end
 
     test "a server without hibernate_after/0 still starts and hibernates" do
