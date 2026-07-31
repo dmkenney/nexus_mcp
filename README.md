@@ -192,15 +192,14 @@ defmodule MyApp.MCP do
   use NexusMCP.Server,
     name: "my-app",
     version: "1.0.0",
-    idle_timeout: 900_000,
-    hibernate_after: 15_000
+    hibernate_after: 60_000
 end
 ```
 
 `idle_timeout` (default `7_200_000`, 2 hours) is how long a session may sit
 idle before it is terminated.
 
-`hibernate_after` (default `15_000`) is how long a session must be quiet before
+`hibernate_after` (default `60_000`) is how long a session must be quiet before
 it hibernates. Hibernating collapses the heap the session grew while handling
 requests, which the BEAM does not otherwise give back — with many concurrent
 sessions holding large tool results, that heap dominates memory use.

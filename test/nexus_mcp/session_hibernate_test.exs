@@ -107,8 +107,8 @@ defmodule NexusMCP.SessionHibernateTest do
   end
 
   describe "configuration" do
-    test "hibernate_after defaults to 15s and is overridable" do
-      assert NexusMCP.TestServer.hibernate_after() == 15_000
+    test "hibernate_after defaults to 60s and is overridable" do
+      assert NexusMCP.TestServer.hibernate_after() == 60_000
       assert QuickHibernateServer.hibernate_after() == 40
       assert NoHibernateServer.hibernate_after() == :infinity
     end

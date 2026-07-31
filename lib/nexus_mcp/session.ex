@@ -249,7 +249,7 @@ defmodule NexusMCP.Session do
     if function_exported?(server_module, :hibernate_after, 0) do
       server_module.hibernate_after()
     else
-      15_000
+      60_000
     end
   end
 

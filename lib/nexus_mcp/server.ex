@@ -56,7 +56,7 @@ defmodule NexusMCP.Server do
   - `:version` - Server version (required)
   - `:idle_timeout` - Session idle timeout in ms (default: 7_200_000 / 2 hours)
   - `:hibernate_after` - Hibernate a session once it has been quiet for this
-    many ms (default: 15_000). Set to `:infinity` to disable hibernation.
+    many ms (default: 60_000). Set to `:infinity` to disable hibernation.
 
   ## Session memory
 
@@ -151,7 +151,7 @@ defmodule NexusMCP.Server do
 
   Optional. `use NexusMCP.Server` defines it from the `:hibernate_after`
   option; a module implementing this behaviour by hand may leave it out, in
-  which case sessions fall back to the 15s default.
+  which case sessions fall back to the 60s default.
   """
   @callback hibernate_after() :: non_neg_integer() | :infinity
 
@@ -170,7 +170,7 @@ defmodule NexusMCP.Server do
     name = Keyword.fetch!(opts, :name)
     version = Keyword.fetch!(opts, :version)
     idle_timeout = Keyword.get(opts, :idle_timeout, 7_200_000)
-    hibernate_after = Keyword.get(opts, :hibernate_after, 15_000)
+    hibernate_after = Keyword.get(opts, :hibernate_after, 60_000)
 
     quote do
       @behaviour NexusMCP.Server
