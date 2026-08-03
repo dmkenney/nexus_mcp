@@ -157,9 +157,9 @@ defmodule NexusMCP.SessionTest do
       refute Map.has_key?(payload, "structuredContent")
     end
 
-    # Content items are MCP content blocks rather than a structured value, so a
-    # schema-declaring tool returning them is still valid.
-    test "passes through content items from a schema-declaring tool" do
+    # Unstructured content may accompany a structured result but cannot replace
+    # it, so content items are not an exemption from the schema contract.
+    test "errors when a schema-declaring tool returns only content items" do
       {_id, pid} = start_session()
       initialize(pid)
 
@@ -170,10 +170,13 @@ defmodule NexusMCP.SessionTest do
           params: %{"name" => "structured_content_items", "arguments" => %{}}
         })
 
-      assert %{"result" => %{"content" => [%{"type" => "text", "text" => "hi"}]} = payload} =
-               result
+      assert %{
+               "result" =>
+                 %{"content" => [%{"type" => "text", "text" => text}], "isError" => true} =
+                   payload
+             } = result
 
-      refute Map.has_key?(payload, "isError")
+      assert text =~ "output schema"
       refute Map.has_key?(payload, "structuredContent")
     end
 

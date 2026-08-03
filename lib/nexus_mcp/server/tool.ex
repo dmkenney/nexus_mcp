@@ -60,9 +60,12 @@ defmodule NexusMCP.Server.Tool do
 
     * The schema's root type must be `"object"` — the spec restricts output
       schemas to objects, so anything else raises when the tool is defined.
-    * A tool declaring a schema must return a map. A non-map result cannot
-      conform, so it becomes a tool execution error (`isError: true`) rather than
-      a successful response missing the promised `structuredContent`.
+    * A tool declaring a schema must return a map. Anything else — a list, a
+      scalar, or pre-formatted content blocks — cannot conform, so it becomes a
+      tool execution error (`isError: true`) rather than a successful response
+      missing the promised `structuredContent`. Unstructured content may
+      accompany a structured result, but cannot replace it; a tool that needs to
+      return content blocks directly should omit `output_schema`.
 
   `nexus_mcp` does not validate result *contents* against the schema — matching
   properties and types remains a contract you are responsible for keeping.

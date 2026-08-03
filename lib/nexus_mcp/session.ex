@@ -474,7 +474,8 @@ defmodule NexusMCP.Session do
   defp structured_contract_error(request_id, result) do
     Logger.error(
       "Tool declares an output schema but returned #{inspect(result)}, which is not a " <>
-        "JSON object. MCP requires structured results to conform to the declared schema."
+        "JSON object and so cannot conform to it. Return a map, or drop the output " <>
+        "schema if the tool returns unstructured content."
     )
 
     JsonRpc.result(request_id, %{
@@ -482,24 +483,20 @@ defmodule NexusMCP.Session do
         %{
           "type" => "text",
           "text" =>
-            "Tool declares an output schema but returned a non-object result, " <>
-              "which cannot conform to it."
+            "Tool declares an output schema but did not return a JSON object, " <>
+              "so no conforming structured result could be produced."
         }
       ],
       "isError" => true
     })
   end
 
+  # Content items are no exception. Unstructured content may accompany a
+  # structured result, but cannot replace it: the schema was advertised in
+  # `tools/list`, and returning content blocks instead does not retract it.
   defp task_result_to_response(request_id, {:ok, result}, true = _structured?)
        when not is_map(result) do
-    # Content items are the one non-map shape that is still valid: they are MCP
-    # content blocks rather than a structured value, so they carry no structured
-    # content at all and never claimed to satisfy the schema.
-    if is_list(result) and content_items?(result) do
-      JsonRpc.result(request_id, %{"content" => result})
-    else
-      structured_contract_error(request_id, result)
-    end
+    structured_contract_error(request_id, result)
   end
 
   defp task_result_to_response(request_id, {:ok, result}, structured?) when is_binary(result) do
