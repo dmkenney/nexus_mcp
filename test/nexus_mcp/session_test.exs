@@ -111,6 +111,82 @@ defmodule NexusMCP.SessionTest do
       assert %{"result" => %{"content" => [%{"type" => "text", "text" => "hello"}]}} = result
     end
 
+    test "adds structuredContent when the tool declares an output schema" do
+      {_id, pid} = start_session()
+      initialize(pid)
+
+      result =
+        Session.rpc(pid, %{
+          method: "tools/call",
+          id: 3,
+          params: %{"name" => "structured_map", "arguments" => %{}}
+        })
+
+      # The serialized JSON stays in content for backwards compatibility.
+      assert %{
+               "result" => %{
+                 "content" => [%{"type" => "text", "text" => text}],
+                 "structuredContent" => %{"temperature" => 22.5}
+               }
+             } = result
+
+      assert Jason.decode!(text) == %{"temperature" => 22.5}
+    end
+
+    test "structuredContent supports non-object results such as arrays" do
+      {_id, pid} = start_session()
+      initialize(pid)
+
+      result =
+        Session.rpc(pid, %{
+          method: "tools/call",
+          id: 3,
+          params: %{"name" => "structured_list", "arguments" => %{}}
+        })
+
+      assert %{
+               "result" => %{
+                 "content" => [%{"type" => "text", "text" => _}],
+                 "structuredContent" => [%{"id" => "1"}, %{"id" => "2"}]
+               }
+             } = result
+    end
+
+    test "omits structuredContent when the tool declares no output schema" do
+      {_id, pid} = start_session()
+      initialize(pid)
+
+      result =
+        Session.rpc(pid, %{
+          method: "tools/call",
+          id: 3,
+          params: %{"name" => "map_result", "arguments" => %{}}
+        })
+
+      assert %{"result" => %{"content" => [%{"type" => "text", "text" => _}]} = payload} = result
+      refute Map.has_key?(payload, "structuredContent")
+    end
+
+    test "omits structuredContent for errors even when an output schema is declared" do
+      {_id, pid} = start_session()
+      initialize(pid)
+
+      result =
+        Session.rpc(pid, %{
+          method: "tools/call",
+          id: 3,
+          params: %{"name" => "structured_failing", "arguments" => %{}}
+        })
+
+      assert %{
+               "result" =>
+                 %{"isError" => true, "content" => [%{"text" => "could not fetch data"}]} =
+                   payload
+             } = result
+
+      refute Map.has_key?(payload, "structuredContent")
+    end
+
     test "handles tool errors" do
       {_id, pid} = start_session()
       initialize(pid)

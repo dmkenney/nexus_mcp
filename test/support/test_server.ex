@@ -55,6 +55,28 @@ defmodule NexusMCP.TestServer do
         name: "empty_list",
         description: "Returns an empty list",
         inputSchema: %{type: "object", properties: %{}}
+      },
+      %{
+        name: "structured_map",
+        description: "Returns a map and declares an output schema",
+        inputSchema: %{type: "object", properties: %{}},
+        outputSchema: %{
+          type: "object",
+          properties: %{"temperature" => %{type: "number"}},
+          required: ["temperature"]
+        }
+      },
+      %{
+        name: "structured_list",
+        description: "Returns a list of maps and declares an output schema",
+        inputSchema: %{type: "object", properties: %{}},
+        outputSchema: %{type: "array", items: %{type: "object"}}
+      },
+      %{
+        name: "structured_failing",
+        description: "Declares an output schema but returns an error",
+        inputSchema: %{type: "object", properties: %{}},
+        outputSchema: %{type: "object"}
       }
     ]
   end
@@ -79,6 +101,18 @@ defmodule NexusMCP.TestServer do
 
   def handle_tool_call("map_result", _params, _session) do
     {:ok, %{"key" => "value"}}
+  end
+
+  def handle_tool_call("structured_map", _params, _session) do
+    {:ok, %{"temperature" => 22.5}}
+  end
+
+  def handle_tool_call("structured_list", _params, _session) do
+    {:ok, [%{"id" => "1"}, %{"id" => "2"}]}
+  end
+
+  def handle_tool_call("structured_failing", _params, _session) do
+    {:error, "could not fetch data"}
   end
 
   def handle_tool_call("list_result", _params, _session) do

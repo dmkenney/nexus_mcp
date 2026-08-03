@@ -104,8 +104,13 @@ defmodule NexusMCP.Session do
     state = awake(state)
 
     case Map.pop(pending, ref) do
+      {{from, request_id, structured?}, pending} ->
+        response = task_result_to_response(request_id, result, structured?)
+        GenServer.reply(from, response)
+        {:noreply, %{state | pending_tasks: pending}, state.idle_timeout}
+
       {{from, request_id}, pending} ->
-        response = task_result_to_response(request_id, result)
+        response = task_result_to_response(request_id, result, false)
         GenServer.reply(from, response)
         {:noreply, %{state | pending_tasks: pending}, state.idle_timeout}
 
@@ -120,7 +125,13 @@ defmodule NexusMCP.Session do
     state = awake(state)
 
     case Map.pop(pending, ref) do
-      {{from, request_id}, pending} ->
+      {pending_call, pending} when is_tuple(pending_call) ->
+        {from, request_id} =
+          case pending_call do
+            {from, request_id, _structured?} -> {from, request_id}
+            {from, request_id} -> {from, request_id}
+          end
+
         # Task crashed
         Logger.error("Tool call task crashed: #{inspect(reason)}")
 
@@ -329,7 +340,9 @@ defmodule NexusMCP.Session do
           end)
         end)
 
-      pending = Map.put(state.pending_tasks, task.ref, {from, id})
+      pending =
+        Map.put(state.pending_tasks, task.ref, {from, id, structured?(server_module, tool_name)})
+
       {:noreply, %{state | pending_tasks: pending}, state.idle_timeout}
     else
       response = JsonRpc.error(id, JsonRpc.invalid_request_code(), "Not initialized")
@@ -429,49 +442,84 @@ defmodule NexusMCP.Session do
 
   # --- Helpers ---
 
-  defp task_result_to_response(request_id, {:ok, result}) when is_binary(result) do
-    JsonRpc.result(request_id, %{
-      "content" => [%{"type" => "text", "text" => result}]
-    })
+  # Whether the named tool declares an `outputSchema`. Tools that do get their
+  # result echoed into `structuredContent` as well as `content`.
+  defp structured?(server_module, tool_name) do
+    server_module.tools()
+    |> Enum.find(fn tool ->
+      Map.get(tool, :name) == tool_name or Map.get(tool, "name") == tool_name
+    end)
+    |> case do
+      nil -> false
+      tool -> Map.has_key?(tool, :outputSchema) or Map.has_key?(tool, "outputSchema")
+    end
+  rescue
+    # A manual tools/0 that raises must not take the tool call down with it.
+    _ -> false
   end
 
-  defp task_result_to_response(request_id, {:ok, result}) when is_list(result) do
+  # Successful results gain a `structuredContent` field when the tool declares an
+  # output schema. The serialized JSON stays in `content` for backwards
+  # compatibility, as the MCP specification recommends.
+  defp maybe_put_structured(payload, _result, false), do: payload
+
+  defp maybe_put_structured(payload, result, true),
+    do: Map.put(payload, "structuredContent", result)
+
+  defp task_result_to_response(request_id, {:ok, result}, structured?) when is_binary(result) do
+    JsonRpc.result(
+      request_id,
+      %{"content" => [%{"type" => "text", "text" => result}]}
+      |> maybe_put_structured(result, structured?)
+    )
+  end
+
+  defp task_result_to_response(request_id, {:ok, result}, structured?) when is_list(result) do
     if content_items?(result) do
+      # Already-shaped content items are passed through untouched; there is no
+      # separate structured value to report.
       JsonRpc.result(request_id, %{"content" => result})
     else
-      JsonRpc.result(request_id, %{
-        "content" => [%{"type" => "text", "text" => Jason.encode!(result)}]
-      })
+      JsonRpc.result(
+        request_id,
+        %{"content" => [%{"type" => "text", "text" => Jason.encode!(result)}]}
+        |> maybe_put_structured(result, structured?)
+      )
     end
   end
 
-  defp task_result_to_response(request_id, {:ok, result}) when is_map(result) do
-    JsonRpc.result(request_id, %{
-      "content" => [%{"type" => "text", "text" => Jason.encode!(result)}]
-    })
+  defp task_result_to_response(request_id, {:ok, result}, structured?) when is_map(result) do
+    JsonRpc.result(
+      request_id,
+      %{"content" => [%{"type" => "text", "text" => Jason.encode!(result)}]}
+      |> maybe_put_structured(result, structured?)
+    )
   end
 
-  defp task_result_to_response(request_id, {:ok, result}) do
-    JsonRpc.result(request_id, %{
-      "content" => [%{"type" => "text", "text" => to_string(result)}]
-    })
+  defp task_result_to_response(request_id, {:ok, result}, structured?) do
+    JsonRpc.result(
+      request_id,
+      %{"content" => [%{"type" => "text", "text" => to_string(result)}]}
+      |> maybe_put_structured(result, structured?)
+    )
   end
 
-  defp task_result_to_response(request_id, {:error, message}) when is_binary(message) do
+  defp task_result_to_response(request_id, {:error, message}, _structured?)
+       when is_binary(message) do
     JsonRpc.result(request_id, %{
       "content" => [%{"type" => "text", "text" => message}],
       "isError" => true
     })
   end
 
-  defp task_result_to_response(request_id, {:error, message}) do
+  defp task_result_to_response(request_id, {:error, message}, _structured?) do
     JsonRpc.result(request_id, %{
       "content" => [%{"type" => "text", "text" => inspect(message)}],
       "isError" => true
     })
   end
 
-  defp task_result_to_response(request_id, other) do
+  defp task_result_to_response(request_id, other, _structured?) do
     Logger.error("Unexpected tool call result: #{inspect(other)}")
 
     JsonRpc.error(

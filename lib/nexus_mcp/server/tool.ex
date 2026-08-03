@@ -30,6 +30,32 @@ defmodule NexusMCP.Server.Tool do
       end
 
   Supported keys: `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`, `title`.
+
+  ## Output schema
+
+  Pass `output_schema` with a JSON Schema describing the shape of the tool's
+  result. It is advertised to clients as `outputSchema` in `tools/list`:
+
+      deftool "get_weather", "Get current weather",
+        params: [city: {:string!, "City name"}],
+        output_schema: %{
+          type: "object",
+          properties: %{
+            temperature: %{type: "number"},
+            conditions: %{type: "string"}
+          },
+          required: ["temperature", "conditions"]
+        } do
+        {:ok, %{temperature: 22.5, conditions: "Partly cloudy"}}
+      end
+
+  When a tool declares an output schema, successful results are also returned in
+  the `structuredContent` field of `tools/call`, alongside the serialized JSON in
+  a text content block for backwards compatibility. The handler's return value is
+  unchanged — the same `{:ok, result}` is used for both fields.
+
+  Per the MCP specification, servers MUST provide structured results that conform
+  to the declared schema; `nexus_mcp` does not validate results against it.
   """
   defmacro deftool(name, description, opts_or_params \\ [], do_block \\ []) do
     # Handle both `deftool "x", "y", params: [...] do ... end` (arity 4)
@@ -38,6 +64,7 @@ defmodule NexusMCP.Server.Tool do
     {block, opts} = Keyword.pop!(opts, :do)
     params_def = Keyword.get(opts, :params, [])
     annotations_def = Keyword.get(opts, :annotations, nil)
+    output_schema_def = Keyword.get(opts, :output_schema, nil)
 
     schema = Schema.params_to_schema(params_def)
 
@@ -52,6 +79,10 @@ defmodule NexusMCP.Server.Tool do
                        |> then(fn td ->
                          annotations = unquote(annotations_def)
                          if annotations, do: Map.put(td, :annotations, annotations), else: td
+                       end)
+                       |> then(fn td ->
+                         output_schema = unquote(output_schema_def)
+                         if output_schema, do: Map.put(td, :outputSchema, output_schema), else: td
                        end)
 
       def __nexus_handle_tool_call__(unquote(name), var!(params), var!(session)) do
