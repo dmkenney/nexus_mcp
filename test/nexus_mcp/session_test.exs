@@ -111,6 +111,110 @@ defmodule NexusMCP.SessionTest do
       assert %{"result" => %{"content" => [%{"type" => "text", "text" => "hello"}]}} = result
     end
 
+    test "adds structuredContent when the tool declares an output schema" do
+      {_id, pid} = start_session()
+      initialize(pid)
+
+      result =
+        Session.rpc(pid, %{
+          method: "tools/call",
+          id: 3,
+          params: %{"name" => "structured_map", "arguments" => %{}}
+        })
+
+      # The serialized JSON stays in content for backwards compatibility.
+      assert %{
+               "result" => %{
+                 "content" => [%{"type" => "text", "text" => text}],
+                 "structuredContent" => %{"temperature" => 22.5}
+               }
+             } = result
+
+      assert Jason.decode!(text) == %{"temperature" => 22.5}
+    end
+
+    # A tool declaring an output schema MUST return a conforming result. A list
+    # cannot conform to an object schema, so this is an error rather than a
+    # success that silently drops the promised structuredContent.
+    test "errors when a schema-declaring tool returns a non-object result" do
+      {_id, pid} = start_session()
+      initialize(pid)
+
+      result =
+        Session.rpc(pid, %{
+          method: "tools/call",
+          id: 3,
+          params: %{"name" => "structured_list", "arguments" => %{}}
+        })
+
+      assert %{
+               "result" =>
+                 %{"content" => [%{"type" => "text", "text" => text}], "isError" => true} =
+                   payload
+             } = result
+
+      assert text =~ "output schema"
+      refute Map.has_key?(payload, "structuredContent")
+    end
+
+    # Unstructured content may accompany a structured result but cannot replace
+    # it, so content items are not an exemption from the schema contract.
+    test "errors when a schema-declaring tool returns only content items" do
+      {_id, pid} = start_session()
+      initialize(pid)
+
+      result =
+        Session.rpc(pid, %{
+          method: "tools/call",
+          id: 3,
+          params: %{"name" => "structured_content_items", "arguments" => %{}}
+        })
+
+      assert %{
+               "result" =>
+                 %{"content" => [%{"type" => "text", "text" => text}], "isError" => true} =
+                   payload
+             } = result
+
+      assert text =~ "output schema"
+      refute Map.has_key?(payload, "structuredContent")
+    end
+
+    test "omits structuredContent when the tool declares no output schema" do
+      {_id, pid} = start_session()
+      initialize(pid)
+
+      result =
+        Session.rpc(pid, %{
+          method: "tools/call",
+          id: 3,
+          params: %{"name" => "map_result", "arguments" => %{}}
+        })
+
+      assert %{"result" => %{"content" => [%{"type" => "text", "text" => _}]} = payload} = result
+      refute Map.has_key?(payload, "structuredContent")
+    end
+
+    test "omits structuredContent for errors even when an output schema is declared" do
+      {_id, pid} = start_session()
+      initialize(pid)
+
+      result =
+        Session.rpc(pid, %{
+          method: "tools/call",
+          id: 3,
+          params: %{"name" => "structured_failing", "arguments" => %{}}
+        })
+
+      assert %{
+               "result" =>
+                 %{"isError" => true, "content" => [%{"text" => "could not fetch data"}]} =
+                   payload
+             } = result
+
+      refute Map.has_key?(payload, "structuredContent")
+    end
+
     test "handles tool errors" do
       {_id, pid} = start_session()
       initialize(pid)

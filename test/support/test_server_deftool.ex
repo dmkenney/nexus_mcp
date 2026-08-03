@@ -31,4 +31,28 @@ defmodule NexusMCP.TestServerDeftool do
     annotations: %{readOnlyHint: false, destructiveHint: true, idempotentHint: true} do
     {:ok, %{deleted: true, id: params["id"]}}
   end
+
+  deftool "get_weather", "Get current weather",
+    params: [city: {:string!, "City name"}],
+    output_schema: %{
+      type: "object",
+      properties: %{
+        temperature: %{type: "number", description: "Temperature in celsius"},
+        conditions: %{type: "string", description: "Weather conditions"}
+      },
+      required: ["temperature", "conditions"]
+    } do
+    {:ok, %{temperature: 22.5, conditions: "Partly cloudy", city: params["city"]}}
+  end
+
+  deftool "audit_log", "Read the audit log",
+    params: [],
+    annotations: %{readOnlyHint: true, destructiveHint: false},
+    output_schema: %{
+      type: "object",
+      properties: %{entries: %{type: "array", items: %{type: "object"}}},
+      required: ["entries"]
+    } do
+    {:ok, %{entries: [%{event: "created"}]}}
+  end
 end

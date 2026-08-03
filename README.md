@@ -15,7 +15,7 @@ Supports the three MCP server primitives:
 ```elixir
 def deps do
   [
-    {:nexus_mcp, "~> 0.4.0"}
+    {:nexus_mcp, "~> 0.5.0"}
   ]
 end
 ```
@@ -82,6 +82,45 @@ end
 ```
 
 Supported keys: `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`, `title`.
+
+### Output schemas
+
+Add an [output schema](https://modelcontextprotocol.io/specification/2025-11-25/server/tools#output-schema) to describe the shape of a tool's result, so clients and models can rely on its structure instead of inferring it:
+
+```elixir
+deftool "get_weather", "Get current weather",
+  params: [city: {:string!, "City name"}],
+  output_schema: %{
+    type: "object",
+    properties: %{
+      temperature: %{type: "number", description: "Temperature in celsius"},
+      conditions: %{type: "string", description: "Weather conditions"}
+    },
+    required: ["temperature", "conditions"]
+  } do
+  {:ok, %{temperature: 22.5, conditions: "Partly cloudy"}}
+end
+```
+
+The schema is advertised as `outputSchema` in `tools/list`. Tools that declare one also return their result in the `structuredContent` field of `tools/call`, alongside the serialized JSON in a text content block for backwards compatibility:
+
+```json
+{
+  "content": [{ "type": "text", "text": "{\"temperature\":22.5,\"conditions\":\"Partly cloudy\"}" }],
+  "structuredContent": { "temperature": 22.5, "conditions": "Partly cloudy" }
+}
+```
+
+Your handler is unchanged — the same `{:ok, result}` populates both fields. Errors never carry structured content.
+
+Per the MCP specification, servers **MUST** provide structured results conforming to the declared schema. Two rules follow from that:
+
+- **The root type must be `"object"`.** MCP 2025-11-25 restricts output schemas to objects, because `structuredContent` is itself typed as a JSON object. Declaring an array or scalar schema raises when the tool is defined. To return a list, wrap it: `%{type: "object", properties: %{entries: %{type: "array", ...}}}`.
+- **A tool declaring a schema must return a map.** Anything else — a list, a scalar, or pre-formatted content blocks — cannot conform, so it produces a tool execution error (`isError: true`) instead of a successful response silently missing the `structuredContent` it advertised. Unstructured content may accompany a structured result, but cannot replace it.
+
+Tools that need to return content blocks directly simply omit `output_schema`.
+
+`nexus_mcp` does not validate result *contents* against the schema — matching properties and types is a contract you are responsible for keeping.
 
 ## Prompts
 
@@ -224,7 +263,7 @@ This release implements the **MCP 2025-11-25** server spec for:
 
 - `initialize` + `notifications/initialized`
 - `ping`
-- `tools/list`, `tools/call` (with annotations)
+- `tools/list`, `tools/call` (with annotations, output schemas, and structured content)
 - `prompts/list`, `prompts/get`
 - `resources/list`, `resources/templates/list`, `resources/read`
 
