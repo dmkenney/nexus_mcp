@@ -91,7 +91,12 @@ defmodule NexusMCP.Server.ToolTest do
       audit_log = Enum.find(tools, &(&1.name == "audit_log"))
 
       assert audit_log.annotations == %{readOnlyHint: true, destructiveHint: false}
-      assert audit_log.outputSchema == %{type: "array", items: %{type: "object"}}
+
+      assert audit_log.outputSchema == %{
+               type: "object",
+               properties: %{entries: %{type: "array", items: %{type: "object"}}},
+               required: ["entries"]
+             }
     end
 
     test "tools without output_schema have no outputSchema key" do

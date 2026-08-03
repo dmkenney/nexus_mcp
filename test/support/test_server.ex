@@ -68,9 +68,13 @@ defmodule NexusMCP.TestServer do
       },
       %{
         name: "structured_list",
-        description: "Returns a list of maps and declares an output schema",
+        description: "Returns a bare list despite declaring an output schema",
         inputSchema: %{type: "object", properties: %{}},
-        outputSchema: %{type: "array", items: %{type: "object"}}
+        outputSchema: %{
+          type: "object",
+          properties: %{entries: %{type: "array", items: %{type: "object"}}},
+          required: ["entries"]
+        }
       },
       %{
         name: "structured_failing",

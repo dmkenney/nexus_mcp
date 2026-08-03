@@ -34,7 +34,8 @@ defmodule NexusMCP.Server.Tool do
   ## Output schema
 
   Pass `output_schema` with a JSON Schema describing the shape of the tool's
-  result. It is advertised to clients as `outputSchema` in `tools/list`:
+  result. It is advertised to clients as `outputSchema` in `tools/list`. MCP
+  2025-11-25 restricts it to `type: "object"` at the root:
 
       deftool "get_weather", "Get current weather",
         params: [city: {:string!, "City name"}],
@@ -49,10 +50,12 @@ defmodule NexusMCP.Server.Tool do
         {:ok, %{temperature: 22.5, conditions: "Partly cloudy"}}
       end
 
-  When a tool declares an output schema, successful results are also returned in
-  the `structuredContent` field of `tools/call`, alongside the serialized JSON in
-  a text content block for backwards compatibility. The handler's return value is
-  unchanged — the same `{:ok, result}` is used for both fields.
+  When a tool declares an output schema, successful map results are also returned
+  in the `structuredContent` field of `tools/call`, alongside the serialized JSON
+  in a text content block for backwards compatibility. The handler's return value
+  is unchanged — the same `{:ok, result}` is used for both fields. Because the
+  spec types `structuredContent` as an object, non-map results (lists, scalars)
+  are returned as text content only.
 
   Per the MCP specification, servers MUST provide structured results that conform
   to the declared schema; `nexus_mcp` does not validate results against it.

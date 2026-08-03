@@ -461,10 +461,17 @@ defmodule NexusMCP.Session do
   # Successful results gain a `structuredContent` field when the tool declares an
   # output schema. The serialized JSON stays in `content` for backwards
   # compatibility, as the MCP specification recommends.
+  #
+  # MCP 2025-11-25 types `structuredContent` as an object, and restricts
+  # `outputSchema` to `type: "object"` at the root. A non-object result therefore
+  # has no valid representation in this field, so it is emitted as text content
+  # only rather than as a payload a validating client would reject.
   defp maybe_put_structured(payload, _result, false), do: payload
 
-  defp maybe_put_structured(payload, result, true),
+  defp maybe_put_structured(payload, result, true) when is_map(result),
     do: Map.put(payload, "structuredContent", result)
+
+  defp maybe_put_structured(payload, _result, true), do: payload
 
   defp task_result_to_response(request_id, {:ok, result}, structured?) when is_binary(result) do
     JsonRpc.result(

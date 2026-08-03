@@ -48,7 +48,11 @@ defmodule NexusMCP.TestServerDeftool do
   deftool "audit_log", "Read the audit log",
     params: [],
     annotations: %{readOnlyHint: true, destructiveHint: false},
-    output_schema: %{type: "array", items: %{type: "object"}} do
-    {:ok, [%{event: "created"}]}
+    output_schema: %{
+      type: "object",
+      properties: %{entries: %{type: "array", items: %{type: "object"}}},
+      required: ["entries"]
+    } do
+    {:ok, %{entries: [%{event: "created"}]}}
   end
 end

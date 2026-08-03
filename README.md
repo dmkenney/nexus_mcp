@@ -85,7 +85,7 @@ Supported keys: `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldH
 
 ### Output schemas
 
-Add an [output schema](https://modelcontextprotocol.io/specification/draft/server/tools#output-schema) to describe the shape of a tool's result, so clients and models can rely on its structure instead of inferring it:
+Add an [output schema](https://modelcontextprotocol.io/specification/2025-11-25/server/tools#output-schema) to describe the shape of a tool's result, so clients and models can rely on its structure instead of inferring it:
 
 ```elixir
 deftool "get_weather", "Get current weather",
@@ -111,7 +111,7 @@ The schema is advertised as `outputSchema` in `tools/list`. Tools that declare o
 }
 ```
 
-Your handler is unchanged — the same `{:ok, result}` populates both fields. Any JSON value works, not just objects; a tool returning a list with an array output schema gets that list as `structuredContent`. Errors and pre-formatted content items never carry structured content.
+Your handler is unchanged — the same `{:ok, result}` populates both fields. MCP 2025-11-25 restricts `outputSchema` to `type: "object"` at the root and types `structuredContent` as an object, so only map results are echoed there; a tool returning a list or a scalar still returns its serialized JSON as text content. Errors and pre-formatted content items never carry structured content.
 
 Per the MCP specification, servers **MUST** provide structured results conforming to the declared schema. `nexus_mcp` does not validate results against it — the schema is a contract you are responsible for keeping.
 

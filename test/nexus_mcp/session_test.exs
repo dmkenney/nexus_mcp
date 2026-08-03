@@ -133,7 +133,10 @@ defmodule NexusMCP.SessionTest do
       assert Jason.decode!(text) == %{"temperature" => 22.5}
     end
 
-    test "structuredContent supports non-object results such as arrays" do
+    # MCP 2025-11-25 types `structuredContent` as an object. A list result has no
+    # valid representation there, so it stays text-only rather than becoming a
+    # payload a validating client would reject.
+    test "omits structuredContent for non-object results such as arrays" do
       {_id, pid} = start_session()
       initialize(pid)
 
@@ -144,12 +147,11 @@ defmodule NexusMCP.SessionTest do
           params: %{"name" => "structured_list", "arguments" => %{}}
         })
 
-      assert %{
-               "result" => %{
-                 "content" => [%{"type" => "text", "text" => _}],
-                 "structuredContent" => [%{"id" => "1"}, %{"id" => "2"}]
-               }
-             } = result
+      assert %{"result" => %{"content" => [%{"type" => "text", "text" => text}]} = payload} =
+               result
+
+      assert text == Jason.encode!([%{id: "1"}, %{id: "2"}])
+      refute Map.has_key?(payload, "structuredContent")
     end
 
     test "omits structuredContent when the tool declares no output schema" do
