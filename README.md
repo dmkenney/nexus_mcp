@@ -15,7 +15,7 @@ Supports the three MCP server primitives:
 ```elixir
 def deps do
   [
-    {:nexus_mcp, "~> 0.4.0"}
+    {:nexus_mcp, "~> 0.5.0"}
   ]
 end
 ```
