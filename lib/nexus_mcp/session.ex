@@ -461,17 +461,46 @@ defmodule NexusMCP.Session do
   # Successful results gain a `structuredContent` field when the tool declares an
   # output schema. The serialized JSON stays in `content` for backwards
   # compatibility, as the MCP specification recommends.
-  #
-  # MCP 2025-11-25 types `structuredContent` as an object, and restricts
-  # `outputSchema` to `type: "object"` at the root. A non-object result therefore
-  # has no valid representation in this field, so it is emitted as text content
-  # only rather than as a payload a validating client would reject.
   defp maybe_put_structured(payload, _result, false), do: payload
 
-  defp maybe_put_structured(payload, result, true) when is_map(result),
+  defp maybe_put_structured(payload, result, true),
     do: Map.put(payload, "structuredContent", result)
 
-  defp maybe_put_structured(payload, _result, true), do: payload
+  # A tool that declares an output schema MUST return a result conforming to it,
+  # and MCP 2025-11-25 restricts that schema to `type: "object"` at the root. A
+  # non-map result cannot conform, so it is reported as a tool execution error:
+  # omitting `structuredContent` would silently break the contract the tool
+  # advertised in `tools/list`, leaving a validating client no way to tell.
+  defp structured_contract_error(request_id, result) do
+    Logger.error(
+      "Tool declares an output schema but returned #{inspect(result)}, which is not a " <>
+        "JSON object. MCP requires structured results to conform to the declared schema."
+    )
+
+    JsonRpc.result(request_id, %{
+      "content" => [
+        %{
+          "type" => "text",
+          "text" =>
+            "Tool declares an output schema but returned a non-object result, " <>
+              "which cannot conform to it."
+        }
+      ],
+      "isError" => true
+    })
+  end
+
+  defp task_result_to_response(request_id, {:ok, result}, true = _structured?)
+       when not is_map(result) do
+    # Content items are the one non-map shape that is still valid: they are MCP
+    # content blocks rather than a structured value, so they carry no structured
+    # content at all and never claimed to satisfy the schema.
+    if is_list(result) and content_items?(result) do
+      JsonRpc.result(request_id, %{"content" => result})
+    else
+      structured_contract_error(request_id, result)
+    end
+  end
 
   defp task_result_to_response(request_id, {:ok, result}, structured?) when is_binary(result) do
     JsonRpc.result(

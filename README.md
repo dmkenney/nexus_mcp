@@ -111,9 +111,14 @@ The schema is advertised as `outputSchema` in `tools/list`. Tools that declare o
 }
 ```
 
-Your handler is unchanged — the same `{:ok, result}` populates both fields. MCP 2025-11-25 restricts `outputSchema` to `type: "object"` at the root and types `structuredContent` as an object, so only map results are echoed there; a tool returning a list or a scalar still returns its serialized JSON as text content. Errors and pre-formatted content items never carry structured content.
+Your handler is unchanged — the same `{:ok, result}` populates both fields. Errors and pre-formatted content items never carry structured content.
 
-Per the MCP specification, servers **MUST** provide structured results conforming to the declared schema. `nexus_mcp` does not validate results against it — the schema is a contract you are responsible for keeping.
+Per the MCP specification, servers **MUST** provide structured results conforming to the declared schema. Two rules follow from that:
+
+- **The root type must be `"object"`.** MCP 2025-11-25 restricts output schemas to objects, because `structuredContent` is itself typed as a JSON object. Declaring an array or scalar schema raises when the tool is defined. To return a list, wrap it: `%{type: "object", properties: %{entries: %{type: "array", ...}}}`.
+- **A tool declaring a schema must return a map.** A list or scalar cannot conform, so it produces a tool execution error (`isError: true`) instead of a successful response silently missing the `structuredContent` it advertised.
+
+`nexus_mcp` does not validate result *contents* against the schema — matching properties and types is a contract you are responsible for keeping.
 
 ## Prompts
 

@@ -133,10 +133,10 @@ defmodule NexusMCP.SessionTest do
       assert Jason.decode!(text) == %{"temperature" => 22.5}
     end
 
-    # MCP 2025-11-25 types `structuredContent` as an object. A list result has no
-    # valid representation there, so it stays text-only rather than becoming a
-    # payload a validating client would reject.
-    test "omits structuredContent for non-object results such as arrays" do
+    # A tool declaring an output schema MUST return a conforming result. A list
+    # cannot conform to an object schema, so this is an error rather than a
+    # success that silently drops the promised structuredContent.
+    test "errors when a schema-declaring tool returns a non-object result" do
       {_id, pid} = start_session()
       initialize(pid)
 
@@ -147,10 +147,33 @@ defmodule NexusMCP.SessionTest do
           params: %{"name" => "structured_list", "arguments" => %{}}
         })
 
-      assert %{"result" => %{"content" => [%{"type" => "text", "text" => text}]} = payload} =
+      assert %{
+               "result" =>
+                 %{"content" => [%{"type" => "text", "text" => text}], "isError" => true} =
+                   payload
+             } = result
+
+      assert text =~ "output schema"
+      refute Map.has_key?(payload, "structuredContent")
+    end
+
+    # Content items are MCP content blocks rather than a structured value, so a
+    # schema-declaring tool returning them is still valid.
+    test "passes through content items from a schema-declaring tool" do
+      {_id, pid} = start_session()
+      initialize(pid)
+
+      result =
+        Session.rpc(pid, %{
+          method: "tools/call",
+          id: 3,
+          params: %{"name" => "structured_content_items", "arguments" => %{}}
+        })
+
+      assert %{"result" => %{"content" => [%{"type" => "text", "text" => "hi"}]} = payload} =
                result
 
-      assert text == Jason.encode!([%{id: "1"}, %{id: "2"}])
+      refute Map.has_key?(payload, "isError")
       refute Map.has_key?(payload, "structuredContent")
     end
 

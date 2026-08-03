@@ -107,6 +107,61 @@ defmodule NexusMCP.Server.ToolTest do
     end
   end
 
+  describe "output schema validation" do
+    test "accepts an object root schema" do
+      assert :ok =
+               NexusMCP.Server.Tool.validate_output_schema!("t", %{
+                 type: "object",
+                 properties: %{}
+               })
+    end
+
+    test "accepts string keys, as a manual tools/0 would use" do
+      assert :ok = NexusMCP.Server.Tool.validate_output_schema!("t", %{"type" => "object"})
+    end
+
+    test "rejects an array root schema" do
+      assert_raise ArgumentError, ~r/restricts output schemas/, fn ->
+        NexusMCP.Server.Tool.validate_output_schema!("audit_log", %{
+          type: "array",
+          items: %{type: "object"}
+        })
+      end
+    end
+
+    test "rejects a scalar root schema" do
+      assert_raise ArgumentError, ~r/root type "string"/, fn ->
+        NexusMCP.Server.Tool.validate_output_schema!("t", %{type: "string"})
+      end
+    end
+
+    test "rejects a schema with no root type" do
+      assert_raise ArgumentError, ~r/root type nil/, fn ->
+        NexusMCP.Server.Tool.validate_output_schema!("t", %{properties: %{}})
+      end
+    end
+
+    test "rejects a non-map schema" do
+      assert_raise ArgumentError, ~r/not a map/, fn ->
+        NexusMCP.Server.Tool.validate_output_schema!("t", "object")
+      end
+    end
+
+    test "deftool raises when the declared schema is not an object" do
+      assert_raise ArgumentError, ~r/restricts output schemas/, fn ->
+        defmodule InvalidOutputSchemaServer do
+          use NexusMCP.Server, name: "invalid", version: "1.0.0"
+
+          deftool "bad", "Declares an array output schema",
+            params: [],
+            output_schema: %{type: "array", items: %{type: "object"}} do
+            {:ok, []}
+          end
+        end
+      end
+    end
+  end
+
   describe "deftool dispatches correctly" do
     test "handler receives params" do
       session = %{session_id: "test-123", assigns: %{}}

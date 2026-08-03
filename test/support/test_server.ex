@@ -81,6 +81,12 @@ defmodule NexusMCP.TestServer do
         description: "Declares an output schema but returns an error",
         inputSchema: %{type: "object", properties: %{}},
         outputSchema: %{type: "object"}
+      },
+      %{
+        name: "structured_content_items",
+        description: "Declares an output schema but returns content items",
+        inputSchema: %{type: "object", properties: %{}},
+        outputSchema: %{type: "object"}
       }
     ]
   end
@@ -117,6 +123,10 @@ defmodule NexusMCP.TestServer do
 
   def handle_tool_call("structured_failing", _params, _session) do
     {:error, "could not fetch data"}
+  end
+
+  def handle_tool_call("structured_content_items", _params, _session) do
+    {:ok, [%{"type" => "text", "text" => "hi"}]}
   end
 
   def handle_tool_call("list_result", _params, _session) do
