@@ -41,7 +41,7 @@ defmodule NexusMCP.MixProject do
   defp docs do
     [
       main: "NexusMCP",
-      extras: ["README.md"],
+      extras: ["README.md", "CHANGELOG.md"],
       groups_for_modules: [
         "Server DSL": [
           NexusMCP.Server,
@@ -68,8 +68,11 @@ defmodule NexusMCP.MixProject do
   defp package do
     [
       licenses: ["MIT"],
-      files: ~w(lib .formatter.exs mix.exs README* LICENSE*),
-      links: %{"GitHub" => "https://github.com/dmkenney/nexus_mcp"}
+      files: ~w(lib .formatter.exs mix.exs README* CHANGELOG* LICENSE*),
+      links: %{
+        "GitHub" => "https://github.com/dmkenney/nexus_mcp",
+        "Changelog" => "https://github.com/dmkenney/nexus_mcp/blob/master/CHANGELOG.md"
+      }
     ]
   end
 end
