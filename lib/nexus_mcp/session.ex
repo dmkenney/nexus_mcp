@@ -316,7 +316,13 @@ defmodule NexusMCP.Session do
 
   defp dispatch(%{method: "tools/list", id: id}, _from, state) do
     if state.initialized do
-      tools = state.server_module.tools()
+      session_map = %{session_id: state.session_id, assigns: state.assigns}
+
+      tools =
+        state.server_module.tools()
+        |> Enum.filter(&tool_visible?(state.server_module, &1, session_map))
+        |> Enum.map(&Map.delete(&1, :meta))
+
       {:reply, JsonRpc.result(id, %{"tools" => tools}), state, state.idle_timeout}
     else
       response = JsonRpc.error(id, JsonRpc.invalid_request_code(), "Not initialized")
@@ -333,17 +339,28 @@ defmodule NexusMCP.Session do
       session_map = %{session_id: state.session_id, assigns: state.assigns}
       server_module = state.server_module
 
-      task =
-        Task.Supervisor.async_nolink(NexusMCP.TaskSupervisor, fn ->
-          server_module.wrap_tool_call(session_map, fn ->
-            server_module.handle_tool_call(tool_name, tool_params, session_map)
+      if hidden_tool?(server_module, tool_name, session_map) do
+        response =
+          task_result_to_response(id, NexusMCP.Server.Tool.unknown_tool(tool_name), false)
+
+        {:reply, response, state, state.idle_timeout}
+      else
+        task =
+          Task.Supervisor.async_nolink(NexusMCP.TaskSupervisor, fn ->
+            server_module.wrap_tool_call(session_map, fn ->
+              server_module.handle_tool_call(tool_name, tool_params, session_map)
+            end)
           end)
-        end)
 
-      pending =
-        Map.put(state.pending_tasks, task.ref, {from, id, structured?(server_module, tool_name)})
+        pending =
+          Map.put(
+            state.pending_tasks,
+            task.ref,
+            {from, id, structured?(server_module, tool_name)}
+          )
 
-      {:noreply, %{state | pending_tasks: pending}, state.idle_timeout}
+        {:noreply, %{state | pending_tasks: pending}, state.idle_timeout}
+      end
     else
       response = JsonRpc.error(id, JsonRpc.invalid_request_code(), "Not initialized")
       {:reply, response, state, state.idle_timeout}
@@ -442,20 +459,47 @@ defmodule NexusMCP.Session do
 
   # --- Helpers ---
 
+  defp find_tool(server_module, tool_name) do
+    Enum.find(server_module.tools(), fn tool ->
+      Map.get(tool, :name) == tool_name or Map.get(tool, "name") == tool_name
+    end)
+  rescue
+    # A manual tools/0 that raises must not take the tool call down with it.
+    _ -> nil
+  end
+
+  # A listed tool the session may not see. Names not in tools/0 are not hidden:
+  # a manual handle_tool_call/3 may still accept them.
+  defp hidden_tool?(server_module, tool_name, session_map) do
+    case find_tool(server_module, tool_name) do
+      nil -> false
+      tool -> not tool_visible?(server_module, tool, session_map)
+    end
+  end
+
+  # Servers compiled against an older nexus_mcp, or implementing the behaviour
+  # by hand, may not export tool_visible?/2. A check that raises hides the tool.
+  defp tool_visible?(server_module, tool, session_map) do
+    if function_exported?(server_module, :tool_visible?, 2) do
+      server_module.tool_visible?(tool, session_map) == true
+    else
+      true
+    end
+  rescue
+    e ->
+      Logger.error("tool_visible?/2 raised, hiding tool: " <> Exception.message(e))
+      false
+  end
+
   # Whether the named tool declares an `outputSchema`. Tools that do get their
   # result echoed into `structuredContent` as well as `content`.
   defp structured?(server_module, tool_name) do
-    server_module.tools()
-    |> Enum.find(fn tool ->
-      Map.get(tool, :name) == tool_name or Map.get(tool, "name") == tool_name
-    end)
+    server_module
+    |> find_tool(tool_name)
     |> case do
       nil -> false
       tool -> Map.has_key?(tool, :outputSchema) or Map.has_key?(tool, "outputSchema")
     end
-  rescue
-    # A manual tools/0 that raises must not take the tool call down with it.
-    _ -> false
   end
 
   # Successful results gain a `structuredContent` field when the tool declares an

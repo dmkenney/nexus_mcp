@@ -69,6 +69,20 @@ defmodule NexusMCP.Server.Tool do
 
   `nexus_mcp` does not validate result *contents* against the schema — matching
   properties and types remains a contract you are responsible for keeping.
+
+  ## Meta
+
+  Pass `meta` to attach server-side data to the tool definition, for example
+  to mark tools for `c:NexusMCP.Server.tool_visible?/2`:
+
+      deftool "delete_template", "Delete a template",
+        params: [id: {:string!, "Template ID"}],
+        meta: %{admin: true} do
+        ...
+      end
+
+  `meta` is available as `tool.meta` in `tools/0` and `tool_visible?/2`, and is
+  never sent to clients.
   """
   defmacro deftool(name, description, opts_or_params \\ [], do_block \\ []) do
     # Handle both `deftool "x", "y", params: [...] do ... end` (arity 4)
@@ -78,6 +92,7 @@ defmodule NexusMCP.Server.Tool do
     params_def = Keyword.get(opts, :params, [])
     annotations_def = Keyword.get(opts, :annotations, nil)
     output_schema_def = Keyword.get(opts, :output_schema, nil)
+    meta_def = Keyword.get(opts, :meta, nil)
 
     schema = Schema.params_to_schema(params_def)
 
@@ -106,6 +121,10 @@ defmodule NexusMCP.Server.Tool do
                          else
                            td
                          end
+                       end)
+                       |> then(fn td ->
+                         meta = unquote(meta_def)
+                         if meta, do: Map.put(td, :meta, meta), else: td
                        end)
 
       def __nexus_handle_tool_call__(unquote(name), var!(params), var!(session)) do
@@ -144,6 +163,12 @@ defmodule NexusMCP.Server.Tool do
           "tool #{inspect(tool_name)} declares an output_schema that is not a map: " <>
             inspect(schema)
   end
+
+  @doc false
+  # The result an unknown tool name gets. Also returned for tools hidden from
+  # the session by `tool_visible?/2`, so a hidden tool is indistinguishable
+  # from one that does not exist.
+  def unknown_tool(name), do: {:error, "Unknown tool: #{inspect(name)}"}
 
   @doc """
   Formats Ecto changeset errors into a human-readable error tuple.

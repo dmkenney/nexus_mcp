@@ -58,6 +58,26 @@ defmodule NexusMCP.Server do
   - `:hibernate_after` - Hibernate a session once it has been quiet for this
     many ms (default: 60_000). Set to `:infinity` to disable hibernation.
 
+  ## Per-session tool visibility
+
+  Override `c:tool_visible?/2` to show different tools to different sessions.
+  It receives each tool definition and the session map, whose assigns are set
+  in `c:init/1`:
+
+      deftool "delete_template", "Delete a template",
+        params: [id: {:string!, "Template ID"}],
+        meta: %{admin: true} do
+        ...
+      end
+
+      @impl true
+      def tool_visible?(%{meta: %{admin: true}}, session), do: session.assigns[:admin?] == true
+      def tool_visible?(_tool, _session), do: true
+
+  Hidden tools are left out of `tools/list`, and calling one gets the same
+  response as an unknown tool name. This is not an authorization layer: keep
+  permission checks in the tool handler too.
+
   ## Session memory
 
   A session process keeps the heap it grew while handling requests, and the
@@ -155,8 +175,6 @@ defmodule NexusMCP.Server do
   """
   @callback hibernate_after() :: non_neg_integer() | :infinity
 
-  @optional_callbacks hibernate_after: 0
-
   @doc """
   Wraps every tool call execution. Runs in the Task process before the handler.
   Override to set up process-local state (e.g. tenant context) or rescue errors.
@@ -165,6 +183,23 @@ defmodule NexusMCP.Server do
   """
   @callback wrap_tool_call(session :: session(), fun :: (-> {:ok, term()} | {:error, String.t()})) ::
               {:ok, term()} | {:error, String.t()}
+
+  @doc """
+  Decides whether a tool is visible to a session.
+
+  Called with each tool definition from `tools/0` and the session map (the same
+  one `handle_tool_call/3` receives). Tools for which it returns `false` are left
+  out of `tools/list`, and calling one gets the same response as an unknown tool
+  name, without running `wrap_tool_call/2` or `handle_tool_call/3`.
+
+  Checked on every request. Default implementation returns `true`.
+
+  Hiding a tool is not an authorization check. Keep permission checks in the
+  handler as well.
+  """
+  @callback tool_visible?(tool :: map(), session :: session()) :: boolean()
+
+  @optional_callbacks hibernate_after: 0, tool_visible?: 2
 
   defmacro __using__(opts) do
     name = Keyword.fetch!(opts, :name)
@@ -211,7 +246,10 @@ defmodule NexusMCP.Server do
       @impl NexusMCP.Server
       def wrap_tool_call(_session, fun), do: fun.()
 
-      defoverridable init: 1, wrap_tool_call: 2
+      @impl NexusMCP.Server
+      def tool_visible?(_tool, _session), do: true
+
+      defoverridable init: 1, wrap_tool_call: 2, tool_visible?: 2
 
       # Defaults for tools/prompts/resources callbacks are injected by
       # `NexusMCP.Server.Compile.__before_compile__/1` so the DSL-generated

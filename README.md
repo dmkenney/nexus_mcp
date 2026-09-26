@@ -15,7 +15,7 @@ Supports the three MCP server primitives:
 ```elixir
 def deps do
   [
-    {:nexus_mcp, "~> 0.5.0"}
+    {:nexus_mcp, "~> 0.6.0"}
   ]
 end
 ```
@@ -213,6 +213,26 @@ defmodule MyApp.MCP do
   end
 end
 ```
+
+### Per-session tool visibility
+
+Override `tool_visible?/2` to show different tools to different sessions. It gets each tool definition and the session map, and is checked on every `tools/list` and `tools/call`. Use `meta:` on `deftool` to tag tools without hard-coding names; `meta` is never sent to clients.
+
+```elixir
+deftool "delete_template", "Delete a template",
+  params: [id: {:string!, "Template ID"}],
+  meta: %{admin: true} do
+  if admin?(session), do: Templates.delete(params["id"]), else: {:error, "forbidden"}
+end
+
+@impl true
+def tool_visible?(%{meta: %{admin: true}}, session), do: admin?(session)
+def tool_visible?(_tool, _session), do: true
+
+defp admin?(session), do: session.assigns[:user].role == :admin
+```
+
+Hidden tools are left out of `tools/list`. Calling one returns the same response as an unknown tool name, and neither `wrap_tool_call/2` nor the handler runs. Hiding a tool is not access control: keep the permission check in the handler as well.
 
 ## Transport options
 
