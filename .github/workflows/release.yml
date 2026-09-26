@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish to Hex
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.17.3"
+          otp-version: "27.2"
+
+      - name: Check tag matches mix.exs version
+        run: |
+          version="$(grep -m1 '@version "' mix.exs | sed -E 's/.*"(.*)".*/\1/')"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match mix.exs version $version"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Verify build
+        env:
+          MIX_ENV: test
+        run: |
+          mix format --check-formatted
+          mix compile --warnings-as-errors
+          mix test
+
+      - name: Publish package
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+        run: mix hex.publish --yes
+
+      - name: Extract changelog section
+        run: |
+          # Pull the body between this version's heading ("## v0.6.0") and the next "## " heading.
+          awk -v tag="$GITHUB_REF_NAME" '
+            $0 == "## " tag { capture = 1; next }
+            capture && /^## / { exit }
+            capture { print }
+          ' CHANGELOG.md | sed -e '/./,$!d' > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "Release $GITHUB_REF_NAME" > release_notes.md
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file release_notes.md
