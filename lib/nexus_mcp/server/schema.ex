@@ -48,7 +48,16 @@ defmodule NexusMCP.Server.Schema do
   def params_to_schema(params) when is_list(params) do
     {properties, required} =
       Enum.reduce(params, {%{}, []}, fn {name, type_spec}, {props, req} ->
-        {schema, is_required} = type_to_schema(type_spec)
+        {schema, is_required} =
+          try do
+            type_to_schema(type_spec)
+          rescue
+            e in ArgumentError ->
+              reraise ArgumentError,
+                      [message: "param #{inspect(name)}: " <> Exception.message(e)],
+                      __STACKTRACE__
+          end
+
         name_str = to_string(name)
         props = Map.put(props, name_str, schema)
         req = if is_required, do: [name_str | req], else: req
@@ -92,6 +101,15 @@ defmodule NexusMCP.Server.Schema do
   def type_to_schema(:number!), do: {%{type: "number"}, true}
   def type_to_schema(:object), do: {%{type: "object"}, false}
   def type_to_schema(:object!), do: {%{type: "object"}, true}
+
+  def type_to_schema({_type_spec, description}) do
+    raise ArgumentError,
+          "param description must evaluate to a string, got: #{inspect(description)}"
+  end
+
+  def type_to_schema(other) do
+    raise ArgumentError, "unknown param type: #{inspect(other)}"
+  end
 
   @doc """
   Strips `!` from all param types, making everything optional.

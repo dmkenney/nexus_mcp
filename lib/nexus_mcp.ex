@@ -52,7 +52,8 @@ defmodule NexusMCP do
 
       forward "/mcp", NexusMCP.Transport, server: MyApp.MCP
 
-  See `NexusMCP.Server` for the full behaviour reference.
+  See `NexusMCP.Server` for the full behaviour reference, and `NexusMCP.Tools`
+  for splitting tools across modules with shared defaults.
 
   ## Spec coverage
 

@@ -9,6 +9,7 @@ defmodule NexusMCP.MixProject do
       version: @version,
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
+      test_ignore_filters: [&String.starts_with?(&1, "test/fixtures/")],
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       docs: docs(),
@@ -46,6 +47,7 @@ defmodule NexusMCP.MixProject do
         "Server DSL": [
           NexusMCP.Server,
           NexusMCP.Server.Tool,
+          NexusMCP.Tools,
           NexusMCP.Server.Prompt,
           NexusMCP.Server.Resource,
           NexusMCP.Server.Schema

@@ -28,17 +28,53 @@ defmodule NexusMCP.Server.Compile do
     has_manual_resource_templates = Module.defines?(env.module, {:resource_templates, 0})
     has_manual_handle_resource = Module.defines?(env.module, {:handle_resource_read, 3})
 
-    if tools != [] and has_manual_tools do
-      raise CompileError,
-        file: env.file,
-        line: 0,
-        description:
+    sources = env.module |> Module.get_attribute(:__nexus_tool_sources__, []) |> Enum.reverse()
+    tool_modules = Module.get_attribute(env.module, :__nexus_tool_modules__, [])
+    {use_file, use_line} = Module.get_attribute(env.module, :__nexus_use_location__)
+
+    cond do
+      not has_manual_tools ->
+        :ok
+
+      tool_modules != [] ->
+        NexusMCP.Server.Tool.compile_error!(
+          use_file,
+          use_line,
+          "#{inspect(env.module)} lists tools: modules and defines a manual tools/0. " <>
+            "Use one or the other."
+        )
+
+      tools != [] ->
+        [{_name, {file, line}, _owner} | _] = sources
+
+        NexusMCP.Server.Tool.compile_error!(
+          file,
+          line,
           "#{inspect(env.module)} defines both deftool and a manual tools/0. " <>
             "Use one or the other."
+        )
+
+      true ->
+        :ok
     end
 
+    NexusMCP.Server.Tool.check_duplicates!(sources)
+
+    tools_quote =
+      if tool_modules == [] do
+        tools_quote(tools, has_manual_tools, has_manual_handle_tool)
+      else
+        tool_modules_quote(
+          tools,
+          sources,
+          tool_modules,
+          has_manual_handle_tool,
+          {use_file, use_line}
+        )
+      end
+
     [
-      tools_quote(tools, has_manual_tools, has_manual_handle_tool),
+      tools_quote,
       prompts_quote(prompts, has_manual_prompts, has_manual_handle_prompt),
       resources_quote(
         resources,
@@ -78,6 +114,10 @@ defmodule NexusMCP.Server.Compile do
       quote do
         @impl NexusMCP.Server
         def tools, do: unquote(Macro.escape(tools))
+
+        @doc false
+        def __nexus_handle_tool_call__(name, params, session),
+          do: __nexus_tool_call__(name, params, session)
       end,
       unless(has_manual_handle_tool,
         do:
@@ -89,6 +129,60 @@ defmodule NexusMCP.Server.Compile do
 
             def handle_tool_call(name, _params, _session),
               do: NexusMCP.Server.Tool.unknown_tool(name)
+          end
+      )
+    ]
+  end
+
+  # Server with `tools:` modules. The modules are only referenced in function
+  # bodies, so they stay runtime dependencies.
+  defp tool_modules_quote(tools, sources, modules, has_manual_handle_tool, location) do
+    names = Enum.map(tools, & &1.name)
+
+    own_clause =
+      if names != [] do
+        quote do
+          def __nexus_handle_tool_call__(name, params, session) when name in unquote(names) do
+            __nexus_tool_call__(name, params, session)
+          end
+        end
+      end
+
+    [
+      quote do
+        @impl NexusMCP.Server
+        def tools do
+          NexusMCP.Server.ToolModules.tools(unquote(Macro.escape(tools)), unquote(modules))
+        end
+
+        @doc false
+        def __nexus_tool_config__ do
+          %{
+            modules: unquote(modules),
+            sources: unquote(Macro.escape(sources)),
+            location: unquote(Macro.escape(location))
+          }
+        end
+
+        @doc false
+        unquote(own_clause)
+
+        def __nexus_handle_tool_call__(name, params, session) do
+          NexusMCP.Server.ToolModules.dispatch(
+            __MODULE__,
+            unquote(modules),
+            name,
+            params,
+            session
+          )
+        end
+      end,
+      unless(has_manual_handle_tool,
+        do:
+          quote do
+            @impl NexusMCP.Server
+            def handle_tool_call(name, params, session),
+              do: __nexus_handle_tool_call__(name, params, session)
           end
       )
     ]
