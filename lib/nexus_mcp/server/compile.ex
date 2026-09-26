@@ -72,6 +72,8 @@ defmodule NexusMCP.Server.Compile do
   end
 
   defp tools_quote(tools, _has_manual_tools, has_manual_handle_tool) do
+    tool_names = Enum.map(tools, & &1.name)
+
     [
       quote do
         @impl NexusMCP.Server
@@ -81,9 +83,12 @@ defmodule NexusMCP.Server.Compile do
         do:
           quote do
             @impl NexusMCP.Server
-            def handle_tool_call(name, params, session) do
+            def handle_tool_call(name, params, session) when name in unquote(tool_names) do
               __nexus_handle_tool_call__(name, params, session)
             end
+
+            def handle_tool_call(name, _params, _session),
+              do: NexusMCP.Server.Tool.unknown_tool(name)
           end
       )
     ]

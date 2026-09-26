@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.6.0
+
+### Added
+
+- Optional `tool_visible?/2` server callback for per-session tool visibility.
+  Tools it rejects are left out of `tools/list`, and calling one returns the
+  unknown-tool response without running `wrap_tool_call/2` or the handler.
+  Defaults to `true`, so existing servers are unaffected.
+- `meta:` option on `deftool` for server-side tool data, such as tags for
+  `tool_visible?/2`. It is stored on the tool definition and stripped from
+  `tools/list`.
+
+### Changed
+
+- Calling an unknown tool on a server whose handlers come from `deftool` now
+  returns a tool error (`isError: true`, text `Unknown tool: "name"`) instead
+  of crashing the task and returning a JSON-RPC internal error.
+
 ## v0.5.0
 
 ### Added
