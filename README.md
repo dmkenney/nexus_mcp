@@ -15,7 +15,7 @@ Supports the three MCP server primitives:
 ```elixir
 def deps do
   [
-    {:nexus_mcp, "~> 0.6.0"}
+    {:nexus_mcp, "~> 0.7.0"}
   ]
 end
 ```
@@ -121,6 +121,82 @@ Per the MCP specification, servers **MUST** provide structured results conformin
 Tools that need to return content blocks directly simply omit `output_schema`.
 
 `nexus_mcp` does not validate result *contents* against the schema — matching properties and types is a contract you are responsible for keeping.
+
+### Descriptions
+
+Tool and param descriptions can be any expression that evaluates to a string when the module compiles: module attributes, function calls, heredocs, or a file read with `@external_resource`.
+
+```elixir
+@account_desc "Account ID (use list_accounts to find)"
+@external_resource "priv/mcp/page_guide.md"
+@page_guide File.read!("priv/mcp/page_guide.md")
+
+deftool "update_page", @page_guide,
+  params: [account_id: {:string!, @account_desc}, id: {:string!, "Page ID"}] do
+  ...
+end
+```
+
+A description that is not a string raises a compile error pointing at the `deftool`. Param types must still be literals.
+
+### Tool modules
+
+A large server can be split into modules that only declare tools. Each uses `NexusMCP.Tools` and takes the same `deftool` options:
+
+```elixir
+defmodule MyApp.MCP.Tools.Pages do
+  use NexusMCP.Tools,
+    params: [account_id: {:string!, "Account ID (use list_accounts to find)"}]
+
+  deftool "get_page", "Get a page", params: [id: {:string!, "Page ID"}] do
+    {:ok, CMS.get_page!(params["account_id"], params["id"])}
+  end
+
+  deftool "list_accounts", "List accounts you can access",
+    params: [],
+    skip_default_params: [:account_id] do
+    {:ok, Accounts.list(session.assigns.user)}
+  end
+end
+
+defmodule MyApp.MCP.Admin.Templates do
+  use NexusMCP.Tools,
+    meta: %{admin: true},
+    annotations: %{readOnlyHint: false}
+
+  deftool "delete_template", "Delete a template",
+    params: [id: {:string!, "Template ID"}],
+    annotations: %{destructiveHint: true, title: "Delete template"} do
+    {:ok, Templates.delete!(params["id"])}
+  end
+end
+
+defmodule MyApp.MCP.Server do
+  use NexusMCP.Server,
+    name: "myapp",
+    version: "1.0.0",
+    tools: [MyApp.MCP.Tools.Pages, MyApp.MCP.Admin.Templates]
+
+  @impl true
+  def tool_visible?(%{meta: %{admin: true}}, session), do: session.assigns[:admin?] == true
+  def tool_visible?(_tool, _session), do: true
+end
+```
+
+- `tools/list` returns the server's own `deftool`s first, then each module's tools in list order.
+- Calls are dispatched to the module that declared the tool. `wrap_tool_call/2`, `tool_visible?/2`, structured output, and a custom `handle_tool_call/3` that calls `__nexus_handle_tool_call__/3` all work as for the server's own tools.
+- Declaring the same tool name twice (in the server or any module), or listing a module that doesn't `use NexusMCP.Tools`, is a compile error.
+- The server reads its tools modules when it compiles, so `tools/0` is a fixed list and dispatch is one function clause per tool name. Editing a tools module recompiles the server module too.
+
+#### Module defaults
+
+`use NexusMCP.Tools` (and `use NexusMCP.Server`, for its own tools) accepts defaults applied to every tool in the module:
+
+| Option         | Effect                                                                                                                   |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `:params`      | Added before each tool's params. A tool replaces one by declaring the same key, or drops it with `skip_default_params:`. |
+| `:meta`        | Merged recursively with the tool's `meta`; the tool's values win.                                                        |
+| `:annotations` | Merged with the tool's `annotations`; the tool's values win.                                                             |
 
 ## Prompts
 

@@ -5,6 +5,45 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.7.0
+
+### Added
+
+- Tool modules: `use NexusMCP.Tools` declares tools outside the server module,
+  and `use NexusMCP.Server, tools: [...]` lists them. `tools/0` returns the
+  server's own tools, then each module's in list order, and calls are
+  dispatched to the declaring module. `wrap_tool_call/2`, `tool_visible?/2`,
+  structured output and custom `handle_tool_call/3` overrides that call
+  `__nexus_handle_tool_call__/3` work unchanged.
+- Duplicate tool names (across the server and its modules) and modules in
+  `tools:` that don't `use NexusMCP.Tools` are compile errors in the server.
+  Combining `tools:` with a manual `tools/0` is also a compile error.
+- Module-level tool defaults: `params:`, `meta:` and `annotations:` on
+  `use NexusMCP.Tools` and `use NexusMCP.Server`. Default params come before a
+  tool's own, can be replaced by redeclaring the key, and can be dropped per
+  tool with `skip_default_params: [...]`. `meta` is merged recursively and
+  `annotations` shallowly, the tool's values winning in both.
+- Tool and param descriptions may be any expression evaluated at compile time
+  (module attributes, function calls, heredocs, `File.read!` with
+  `@external_resource`). A non-string description is a compile error with the
+  `deftool`'s file and line.
+
+### Notes
+
+- The server reads its tools modules at compile time, as it does its own
+  `deftool`s: `tools/0` is a fixed list and dispatch is one function clause
+  per tool name. The server has a compile-time dependency on each listed
+  module and recompiles when one changes.
+- `tools/list` output of servers that don't use the new options is unchanged.
+- `deftool` handler clauses are now defined as `__nexus_tool_call__/3`, with
+  `__nexus_handle_tool_call__/3` generated in `@before_compile`. Calling
+  `__nexus_handle_tool_call__/3` works as before.
+
+### Follow-up
+
+- Prompts and resources still have to be declared in the server module. The
+  same module split for `defprompt` and `defresource` is a possible follow-up.
+
 ## v0.6.0
 
 ### Added

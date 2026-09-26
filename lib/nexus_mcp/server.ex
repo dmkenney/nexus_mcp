@@ -57,6 +57,31 @@ defmodule NexusMCP.Server do
   - `:idle_timeout` - Session idle timeout in ms (default: 7_200_000 / 2 hours)
   - `:hibernate_after` - Hibernate a session once it has been quiet for this
     many ms (default: 60_000). Set to `:infinity` to disable hibernation.
+  - `:tools` - A literal list of `NexusMCP.Tools` modules whose tools the
+    server exposes after its own `deftool`s. See `NexusMCP.Tools`.
+  - `:params`, `:meta`, `:annotations` - Defaults for the server's own
+    `deftool`s, as in `NexusMCP.Tools`.
+
+  ## Tool modules
+
+  Tools can live in separate modules, one per domain:
+
+      defmodule MyApp.MCP.Tools.Pages do
+        use NexusMCP.Tools, params: [account_id: {:string!, "Account ID"}]
+
+        deftool "get_page", "Get a page", params: [id: {:string!, "Page ID"}] do
+          {:ok, CMS.get_page!(params["account_id"], params["id"])}
+        end
+      end
+
+      defmodule MyApp.MCP do
+        use NexusMCP.Server,
+          name: "my-app",
+          version: "1.0.0",
+          tools: [MyApp.MCP.Tools.Pages]
+      end
+
+  See `NexusMCP.Tools` for dispatch, module defaults and recompilation.
 
   ## Per-session tool visibility
 
@@ -206,10 +231,40 @@ defmodule NexusMCP.Server do
     version = Keyword.fetch!(opts, :version)
     idle_timeout = Keyword.get(opts, :idle_timeout, 7_200_000)
     hibernate_after = Keyword.get(opts, :hibernate_after, 60_000)
+    location = {__CALLER__.file, __CALLER__.line}
+    tool_defaults = Keyword.take(opts, [:params, :meta, :annotations])
+
+    tool_modules =
+      opts
+      |> Keyword.get(:tools, [])
+      |> List.wrap()
+      |> Enum.map(&Macro.expand(&1, __CALLER__))
+
+    unless Enum.all?(tool_modules, &is_atom/1) do
+      NexusMCP.Server.Tool.compile_error!(
+        __CALLER__.file,
+        __CALLER__.line,
+        "tools: must be a literal list of modules, got: #{Macro.to_string(opts[:tools])}"
+      )
+    end
 
     quote do
       @behaviour NexusMCP.Server
 
+      @__nexus_tool_modules__ unquote(tool_modules)
+      @__nexus_use_location__ unquote(Macro.escape(location))
+
+      Module.put_attribute(
+        __MODULE__,
+        :__nexus_tool_defaults__,
+        NexusMCP.Server.Tool.__defaults__(unquote(tool_defaults), unquote(location))
+      )
+
+      # The server's tools/0 and dispatch are built from these modules at
+      # compile time, so it recompiles whenever one of them changes.
+      unquote_splicing(Enum.map(tool_modules, &quote(do: require(unquote(&1)))))
+
+      Module.register_attribute(__MODULE__, :__nexus_tool_sources__, accumulate: true)
       Module.register_attribute(__MODULE__, :__nexus_tools__, accumulate: true)
       Module.register_attribute(__MODULE__, :__nexus_prompts__, accumulate: true)
       Module.register_attribute(__MODULE__, :__nexus_resources__, accumulate: true)
