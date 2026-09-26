@@ -46,16 +46,14 @@ defmodule NexusMCP.Tools do
 
   ## Recompilation
 
-  Listing modules in `tools:` adds only a runtime dependency from the server to
-  each module, so editing a tools module does not recompile the server. The
-  server's `tools/0` calls each module at runtime, and the tool name to module
-  map used for dispatch is built on the first call and cached in
-  `:persistent_term`. The cache rebuilds itself when a module is reloaded with
-  different tools.
+  The server reads its tools modules when it compiles, as it does its own
+  `deftool`s: `tools/0` returns a fixed list and dispatch is one function
+  clause per tool name, with nothing looked up at runtime. The server
+  therefore has a compile-time dependency on each listed module and recompiles
+  whenever one of them changes.
 
-  Checks that need the listed modules (each one uses `NexusMCP.Tools`, no tool
-  name is declared twice) run in the server's `@after_verify` hook, which runs
-  when the server is compiled or verified.
+  A tool name declared twice (in the server or any listed module) and a listed
+  module that does not use `NexusMCP.Tools` are compile errors in the server.
   """
 
   defmacro __using__(opts) do
@@ -95,30 +93,15 @@ defmodule NexusMCP.Tools do
     tools = env.module |> Module.get_attribute(:__nexus_tools__, []) |> Enum.reverse()
     sources = env.module |> Module.get_attribute(:__nexus_tool_sources__, []) |> Enum.reverse()
     NexusMCP.Server.Tool.check_duplicates!(sources)
-    names = Enum.map(tools, & &1.name)
 
-    own_clause =
-      if names != [] do
-        quote do
-          def __nexus_handle_tool_call__(name, params, session) when name in unquote(names) do
-            __nexus_tool_call__(name, params, session)
-          end
-        end
-      end
-
+    # Read by the server at compile time. The server dispatches straight to
+    # this module's `__nexus_tool_call__/3` clauses.
     quote do
       @doc false
       def __nexus_tools__, do: unquote(Macro.escape(tools))
 
       @doc false
       def __nexus_tool_sources__, do: unquote(Macro.escape(sources))
-
-      @doc false
-      unquote(own_clause)
-
-      # Reached when the server's cached name-to-module map is stale.
-      def __nexus_handle_tool_call__(_name, _params, _session),
-        do: NexusMCP.Server.ToolModules.not_here()
     end
   end
 end

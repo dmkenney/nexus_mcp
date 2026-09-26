@@ -111,32 +111,8 @@ defmodule NexusMCP.ToolModulesTest do
                pid |> call_tool("get_page", %{"id" => "1"}) |> decoded_text()
     end
 
-    test "a stale name-to-module cache is rebuilt" do
-      key = {NexusMCP.Server.ToolModules, Server}
-      modules = [NexusMCP.TestTools.Pages, NexusMCP.TestTools.Admin]
+    test "tools of a module not listed in tools: are unknown" do
       session = %{session_id: "s", assigns: %{}}
-
-      # A tool that moved to another module since the map was built.
-      :persistent_term.put(key, {modules, %{"get_page" => NexusMCP.TestTools.Admin}})
-
-      assert {:ok, %{module: "pages"}} =
-               Server.__nexus_handle_tool_call__("get_page", %{}, session)
-
-      assert {^modules, index} = :persistent_term.get(key)
-      assert index["get_page"] == NexusMCP.TestTools.Pages
-      assert index["admin_stats"] == NexusMCP.TestTools.Admin
-    end
-
-    test "a cache built for another tools: list is not used" do
-      key = {NexusMCP.Server.ToolModules, NexusMCP.TestServerToolModulesAuth}
-      session = %{session_id: "s", assigns: %{}}
-
-      # Admin was listed when the map was built, but is not any more.
-      :persistent_term.put(
-        key,
-        {[NexusMCP.TestTools.Pages, NexusMCP.TestTools.Admin],
-         %{"admin_stats" => NexusMCP.TestTools.Admin}}
-      )
 
       assert {:error, ~s(Unknown tool: "admin_stats")} =
                NexusMCP.TestServerToolModulesAuth.handle_tool_call("admin_stats", %{}, session)

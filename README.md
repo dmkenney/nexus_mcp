@@ -186,7 +186,7 @@ end
 - `tools/list` returns the server's own `deftool`s first, then each module's tools in list order.
 - Calls are dispatched to the module that declared the tool. `wrap_tool_call/2`, `tool_visible?/2`, structured output, and a custom `handle_tool_call/3` that calls `__nexus_handle_tool_call__/3` all work as for the server's own tools.
 - Declaring the same tool name twice (in the server or any module), or listing a module that doesn't `use NexusMCP.Tools`, is a compile error.
-- The server depends on its tools modules only at runtime, so editing a tools module does not recompile the server.
+- The server reads its tools modules when it compiles, so `tools/0` is a fixed list and dispatch is one function clause per tool name. Editing a tools module recompiles the server module too.
 
 #### Module defaults
 

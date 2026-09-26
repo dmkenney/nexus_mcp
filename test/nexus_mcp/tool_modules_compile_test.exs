@@ -1,22 +1,8 @@
 defmodule NexusMCP.ToolModulesCompileTest do
   use ExUnit.Case, async: true
 
-  # The failed compiling processes log their crash.
-  @moduletag :capture_log
-
-  # Cross-module checks run in the server's @after_verify hook, which runs in a
-  # linked checker process. Its error exits the compiling process instead of
-  # raising, so compile in a separate process and read the exit reason.
   defp compile_error(code) do
-    {_pid, ref} = spawn_monitor(fn -> Code.compile_string(code, "tool_modules_test.ex") end)
-
-    receive do
-      {:DOWN, ^ref, :process, _, {%CompileError{} = error, _stack}} ->
-        error
-
-      {:DOWN, ^ref, :process, _, reason} ->
-        flunk("expected a CompileError, got #{inspect(reason)}")
-    end
+    assert_raise CompileError, fn -> Code.compile_string(code, "tool_modules_test.ex") end
   end
 
   defp unique, do: "M#{System.unique_integer([:positive])}"
@@ -112,7 +98,7 @@ defmodule NexusMCP.ToolModulesCompileTest do
       """)
 
     assert error.line == 6
-    assert error.description =~ "#{m}.NotTools is listed in tools: of #{m}.Server"
+    assert error.description =~ "#{m}.NotTools is listed in tools:"
     assert error.description =~ "does not use NexusMCP.Tools"
   end
 

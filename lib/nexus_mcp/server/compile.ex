@@ -134,16 +134,46 @@ defmodule NexusMCP.Server.Compile do
     ]
   end
 
-  # Server with `tools:` modules. The modules are only referenced in function
-  # bodies, so they stay runtime dependencies.
-  defp tool_modules_quote(tools, sources, modules, has_manual_handle_tool, location) do
-    names = Enum.map(tools, & &1.name)
+  # Server with `tools:` modules. The modules are required in `__using__/1`, a
+  # compile-time dependency, so their tools are read here and the server
+  # recompiles whenever one of them changes. tools/0 is a literal list and
+  # dispatch is one clause per tool name.
+  defp tool_modules_quote(tools, sources, modules, has_manual_handle_tool, {file, line}) do
+    module_tools =
+      Enum.map(modules, fn module ->
+        unless function_exported?(module, :__nexus_tools__, 0) do
+          NexusMCP.Server.Tool.compile_error!(
+            file,
+            line,
+            "#{inspect(module)} is listed in tools: but does not use NexusMCP.Tools"
+          )
+        end
+
+        {module, module.__nexus_tools__(), module.__nexus_tool_sources__()}
+      end)
+
+    NexusMCP.Server.Tool.check_duplicates!(
+      sources ++ Enum.flat_map(module_tools, fn {_, _, module_sources} -> module_sources end)
+    )
+
+    all_tools = tools ++ Enum.flat_map(module_tools, fn {_, module_tools, _} -> module_tools end)
 
     own_clause =
-      if names != [] do
+      if tools != [] do
         quote do
-          def __nexus_handle_tool_call__(name, params, session) when name in unquote(names) do
+          def __nexus_handle_tool_call__(name, params, session)
+              when name in unquote(Enum.map(tools, & &1.name)) do
             __nexus_tool_call__(name, params, session)
+          end
+        end
+      end
+
+    module_clauses =
+      for {module, module_tools, _} <- module_tools, module_tools != [] do
+        quote do
+          def __nexus_handle_tool_call__(name, params, session)
+              when name in unquote(Enum.map(module_tools, & &1.name)) do
+            unquote(module).__nexus_tool_call__(name, params, session)
           end
         end
       end
@@ -151,31 +181,14 @@ defmodule NexusMCP.Server.Compile do
     [
       quote do
         @impl NexusMCP.Server
-        def tools do
-          NexusMCP.Server.ToolModules.tools(unquote(Macro.escape(tools)), unquote(modules))
-        end
-
-        @doc false
-        def __nexus_tool_config__ do
-          %{
-            modules: unquote(modules),
-            sources: unquote(Macro.escape(sources)),
-            location: unquote(Macro.escape(location))
-          }
-        end
+        def tools, do: unquote(Macro.escape(all_tools))
 
         @doc false
         unquote(own_clause)
+        unquote_splicing(module_clauses)
 
-        def __nexus_handle_tool_call__(name, params, session) do
-          NexusMCP.Server.ToolModules.dispatch(
-            __MODULE__,
-            unquote(modules),
-            name,
-            params,
-            session
-          )
-        end
+        def __nexus_handle_tool_call__(name, _params, _session),
+          do: NexusMCP.Server.Tool.unknown_tool(name)
       end,
       unless(has_manual_handle_tool,
         do:

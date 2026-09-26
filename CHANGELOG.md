@@ -16,9 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   structured output and custom `handle_tool_call/3` overrides that call
   `__nexus_handle_tool_call__/3` work unchanged.
 - Duplicate tool names (across the server and its modules) and modules in
-  `tools:` that don't `use NexusMCP.Tools` are compile errors, checked in the
-  server's `@after_verify` hook. Combining `tools:` with a manual `tools/0` is
-  also a compile error.
+  `tools:` that don't `use NexusMCP.Tools` are compile errors in the server.
+  Combining `tools:` with a manual `tools/0` is also a compile error.
 - Module-level tool defaults: `params:`, `meta:` and `annotations:` on
   `use NexusMCP.Tools` and `use NexusMCP.Server`. Default params come before a
   tool's own, can be replaced by redeclaring the key, and can be dropped per
@@ -31,9 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Notes
 
-- The server has only a runtime dependency on its tools modules, so editing
-  one does not recompile the server. `tools/0` calls each module at runtime,
-  and the name-to-module dispatch map is cached in `:persistent_term`.
+- The server reads its tools modules at compile time, as it does its own
+  `deftool`s: `tools/0` is a fixed list and dispatch is one function clause
+  per tool name. The server has a compile-time dependency on each listed
+  module and recompiles when one changes.
 - `tools/list` output of servers that don't use the new options is unchanged.
 - `deftool` handler clauses are now defined as `__nexus_tool_call__/3`, with
   `__nexus_handle_tool_call__/3` generated in `@before_compile`. Calling

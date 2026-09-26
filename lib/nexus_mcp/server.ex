@@ -234,14 +234,11 @@ defmodule NexusMCP.Server do
     location = {__CALLER__.file, __CALLER__.line}
     tool_defaults = Keyword.take(opts, [:params, :meta, :annotations])
 
-    # Expanding the aliases as if inside a function records a runtime
-    # dependency on each tools module, not a compile-time one, so editing a
-    # tools module does not recompile the server.
     tool_modules =
       opts
       |> Keyword.get(:tools, [])
       |> List.wrap()
-      |> Enum.map(&Macro.expand(&1, %{__CALLER__ | function: {:tools, 0}}))
+      |> Enum.map(&Macro.expand(&1, __CALLER__))
 
     unless Enum.all?(tool_modules, &is_atom/1) do
       NexusMCP.Server.Tool.compile_error!(
@@ -263,11 +260,9 @@ defmodule NexusMCP.Server do
         NexusMCP.Server.Tool.__defaults__(unquote(tool_defaults), unquote(location))
       )
 
-      unquote(
-        if tool_modules != [] do
-          quote do: @after_verify({NexusMCP.Server.ToolModules, :__after_verify__})
-        end
-      )
+      # The server's tools/0 and dispatch are built from these modules at
+      # compile time, so it recompiles whenever one of them changes.
+      unquote_splicing(Enum.map(tool_modules, &quote(do: require(unquote(&1)))))
 
       Module.register_attribute(__MODULE__, :__nexus_tool_sources__, accumulate: true)
       Module.register_attribute(__MODULE__, :__nexus_tools__, accumulate: true)
