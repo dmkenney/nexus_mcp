@@ -49,6 +49,11 @@ defmodule NexusMCP.SSE do
 
       :close ->
         conn
+
+      # The web server's connection handler traps exits, so a shutdown arrives here as a message. Ending the stream
+      # lets the server stop now instead of waiting out its shutdown timeout.
+      {:EXIT, _from, _reason} ->
+        conn
     end
   end
 
