@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- An open SSE stream no longer holds up server shutdown. The stream loop now
+  ends when the connection handler gets an exit signal, so Bandit stops at once
+  instead of waiting out its shutdown timeout (15 seconds by default).
+
 ## v0.7.0
 
 ### Added
